@@ -1,0 +1,3 @@
+{"k": 10, "is_induced": false, "angle": 5.226617175555658, "is_reflected": true, "query_id": "gr00049_q", "graph_id": "gr00049", "is_planar": true, "has_chord": false, "n_nodes": 10, "n_edges": 10}
+{"k": 19, "is_induced": false, "angle": 2.845784576695462, "is_reflected": true, "query_id": "gr00048_q", "graph_id": "gr00048", "is_planar": true, "has_chord": false, "n_nodes": 19, "n_edges": 19}
+{"k": 11, "is_induced": false, "angle": 2.3255875600673526, "is_reflected": true, "query_id": "gr00047_q", "graph_id": "gr00047", "is_planar": true, "has_chord": false, "n_nodes": 11, "n_edges": 11}

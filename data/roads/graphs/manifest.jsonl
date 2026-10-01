@@ -1,0 +1,3 @@
+{"place": "Le Marais, Paris, France", "graph_id": "gr00049", "is_planar": true, "n_nodes": 1128, "n_edges": 1205, "avg_degree": 2.1365248226950353, "sd_degree": 0.4772995636885802, "density": 0.0018957629305191087, "avg_clustering": 0.0, "n_components": 1}
+{"place": "Banff, Canada", "graph_id": "gr00048", "is_planar": true, "n_nodes": 1607, "n_edges": 1660, "avg_degree": 2.0659614187927815, "sd_degree": 0.34656110339597396, "density": 0.001286401879696626, "avg_clustering": 0.0, "n_components": 1}
+{"place": "Munich, Germany", "graph_id": "gr00047", "is_planar": false, "n_nodes": 100110, "n_edges": 106210, "avg_degree": 2.1218659474577963, "sd_degree": 0.42730727089065224, "density": 2.1195556318191136e-05, "avg_clustering": 8.32417673892052e-06, "n_components": 1}
