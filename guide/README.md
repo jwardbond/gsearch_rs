@@ -30,7 +30,7 @@ the remaining slices.
 | 0 | [Toolchain and first program](slice-00-setup.md) | `cargo run` prints a greeting; you read your first compiler error | written |
 | 1 | [Read a graph file](slice-01-read-json.md) | `gsearch <file>` prints `gd00000_q: 3 nodes, 3 edges`; a 238 MB graph loads in under a second | written |
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
-| 3 | Graph type | Build the in-memory graph from a `GraphFile`; `distance_from_node`, query radius. Port `test_core.py` | **needs decision D5** |
+| 3 | Graph type | Build the in-memory graph from a `GraphFile`; `distance_from_node`, query radius. Port `test_core.py` | ready to write (D5 decided) |
 | 4 | Spatial index and crop | `query_radius` and `make_crop` (connected component of the anchor). Port `test_spatial.py` | outline |
 | 5 | Node matching | Annulus masks, handedness split, injective assignments, `get_candidate_matches`. Port `test_align_nodes.py` | outline |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
@@ -78,8 +78,8 @@ Bugs (a broken invariant) panic.
 loop compiles to fast machine code, so we do not need numpy-style vectorization to be fast.
 Masks and distances become loops over slices. Procrustes in 2D has a closed form (Slice 6).
 
-**D5. Graph storage (open; decide after Slice 1).** This choice shapes Slices 3 to 7.
-- *Own compact struct (recommended).* Node ids, coordinates and adjacency lists are plain
+**D5. Graph storage (decided: own compact struct).** This choice shapes Slices 3 to 7.
+- *Own compact struct (chosen).* Node ids, coordinates and adjacency lists are plain
   `Vec`s indexed by position (`0..n`), plus a `HashMap` from file id to position. It uses
   little memory for 10^6 nodes and is easy to crop. You write Dijkstra and the
   connected-component search yourself (about 60 lines in total).
