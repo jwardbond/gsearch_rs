@@ -30,7 +30,7 @@ the remaining slices.
 | 0 | [Toolchain and first program](slice-00-setup.md) | `cargo run` prints a greeting; you read your first compiler error | written |
 | 1 | [Read a graph file](slice-01-read-json.md) | `gsearch <file>` prints `gd00000_q: 3 nodes, 3 edges`; a 238 MB graph loads in under a second | written |
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
-| 3 | Graph type | Build the in-memory graph from a `GraphFile`; `distance_from_node`, query radius. Port `test_core.py` | ready to write (D5 decided) |
+| 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
 | 4 | Spatial index and crop | `query_radius` and `make_crop` (connected component of the anchor). Port `test_spatial.py` | outline |
 | 5 | Node matching | Annulus masks, handedness split, injective assignments, `get_candidate_matches`. Port `test_align_nodes.py` | outline |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
@@ -71,14 +71,16 @@ to the same bits as Python's `json`. Slice 1 shows why this matters.
 
 **D3. Errors (decided for now, Slice 1).** Functions that can fail for reasons outside the
 program (a missing file, bad JSON) return `Result`. For now the error type is
-`Box<dyn Error>`, which holds "any error". Slice 8 may change this to the `anyhow` crate.
-Bugs (a broken invariant) panic.
+`Box<dyn Error>`, which holds "any error". Slice 3 adds one error type of our own,
+`GraphError`, so that tests can check which error came back. Slice 8 may change this to the
+`anyhow` and `thiserror` crates. Bugs (a broken invariant, a position out of range) panic.
 
 **D4. Plain loops and a small `Point` type, no matrix crate (decided, Slice 2).** In Rust, a
 loop compiles to fast machine code, so we do not need numpy-style vectorization to be fast.
 Masks and distances become loops over slices. Procrustes in 2D has a closed form (Slice 6).
 
-**D5. Graph storage (decided: own compact struct).** This choice shapes Slices 3 to 7.
+**D5. Graph storage (decided: own compact struct, written in Slice 3).** This choice shapes
+Slices 3 to 7.
 - *Own compact struct (chosen).* Node ids, coordinates and adjacency lists are plain
   `Vec`s indexed by position (`0..n`), plus a `HashMap` from file id to position. It uses
   little memory for 10^6 nodes and is easy to crop. You write Dijkstra and the
@@ -110,7 +112,12 @@ affect the results, so the later slices copy them:
 - `query_radius` includes points exactly on the radius (`<=`), and sorts the results by
   distance.
 - `make_crop` keeps only the connected component that contains the anchor.
-- The anchor of `Q` is its first node in file order.
+- The anchor of `Q` is its first node in file order. In Rust this is position `0`.
+- `Graph::from_file` is stricter than `nx.Graph` (Slice 3): a repeated node id and an edge to a
+  missing node are errors, repeated edges count once, and self-loops are dropped. None of
+  these occurs in the data.
+- `radius_from` of a graph with one node is `0.0`. Python's `max` raises `ValueError` there.
+  This is the only planned difference from Python.
 - `get_candidate_matches` chooses the alignment node with the fewest annulus matches, and
   takes the first one if there is a tie.
 - Nodes on the anchor-to-alignment axis go into both the rotation and the reflection mask.
@@ -149,3 +156,15 @@ Each concept is explained once, where you first type it. Later slices point back
 | iterators, `map`, `collect`, closures | Slice 2, Step 10 |
 | `const`, no default arguments | Slice 2, Step 13 |
 | enums, `match`, `Eq` vs `PartialEq` | Slice 2, Steps 13-14 |
+| private fields, `crate::` paths, parallel `Vec`s | Slice 3, Step 2 |
+| enums that hold data, `Display`, `impl Error`, `&mut` parameter | Slice 3, Step 3 |
+| `&self` methods, tuples, `result.err()`, `to_string` | Slice 3, Step 4 |
+| `Vec::with_capacity`, `vec!`, `HashMap`, `enumerate`, `Option::copied` | Slice 3, Step 6 |
+| slices (`&[T]`), lifetime elision | Slice 3, Step 7 |
+| closures that capture variables, `ok_or`, `?` with an own error, `sum::<T>()` | Slice 3, Step 8 |
+| `&mut` loops, the borrowing rule (many readers or one writer), `sort_unstable`, `dedup` | Slice 3, Step 8 |
+| a borrow cannot outlive its owner (`E0505`) | Slice 3, Step 9 |
+| `#[should_panic]`, `all`, `windows`, `zip`, `find` | Slice 3, Step 10 |
+| ranges, `filter`, `sort_by`, `total_cmp`, `f64` is not `Ord`, stable sort | Slice 3, Step 11 |
+| `fold`, passing a function by name | Slice 3, Step 12 |
+| `Instant`, `eprintln!` | Slice 3, Step 14 |
