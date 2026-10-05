@@ -199,9 +199,6 @@ impl Error for GraphError {}
 5. This line is also what lets `?` convert a `GraphError` into a `Box<dyn Error>` (Slice 1,
    Step 13). You use it in Step 13.
 
-The `thiserror` crate writes the `Display` code from an attribute. We write it by hand once,
-so that you see what the attribute would hide. Slice 8 may switch to a crate.
-
 - [ ] Run `cargo build`. Expected: the same warning as before, and no new one.
 - [ ] Optional. Delete the `impl fmt::Display` block and run `cargo build`. Expected:
   `error[E0277]: GraphError doesn't implement std::fmt::Display`, and a note that says
@@ -774,7 +771,8 @@ I added three more tests: two for `radius_from`, and one that checks the panic o
       }
   ```
 
-- [ ] Add the tests at the end of `mod tests`:
+- [ ] Add three tests at the end of `mod tests`. They check which nodes come back, and their
+  distances:
 
   ```rust
       fn anchor_50(graph: &Graph) -> usize {
@@ -818,7 +816,22 @@ I added three more tests: two for `radius_from`, and one that checks the panic o
               assert_close(dist, x.hypot(y));
           }
       }
+  ```
 
+  1. `anchor_50` is a small helper that finds the position of node 50. The tests call it, so
+     that each test does not repeat the lookup.
+  2. `|&(i, _)|` takes the pair out of the reference. `_` means "I do not need this part".
+     `all(...)` is the Python `all(...)`.
+  3. `ids.sort()` works on `Vec<u64>`. Integers have a full order, so no extra argument is
+     needed. Step 11 shows what is different for floats.
+  4. `for (i, dist) in result` loops over the `Vec` itself, so the loop takes the pairs out of
+     it. We do not need `result` afterwards. `COORDS[i]` works because the position of a
+     node is its place in the file, and the file is built from `COORDS` in order.
+     `x.hypot(y)` is Python's `math.hypot(x, y)`.
+
+- [ ] Add four more tests. They check the order of the result and the edge cases:
+
+  ```rust
       #[test]
       fn distance_sorted_nearest_first() {
           let graph = fixture();
@@ -869,7 +882,18 @@ I added three more tests: two for `radius_from`, and one that checks the panic o
           // a lone anchor has no other nodes to measure
           assert!(result.is_empty());
       }
+  ```
 
+  1. `windows(2)` gives every pair of neighbours in a slice, like `zip(l, l[1:])`. `w[0].1` is
+     the second part of the first pair: tuple parts are read with `.0`, `.1`, and so on.
+  2. `result.iter().zip(expected)` pairs each result with the expected value. The pattern
+     `(&(_, dist), want)` takes the distance out of the reference.
+  3. `find` gives its closure a reference to each item, and `iter` already gives references,
+     so the pattern has two `&`: `|&&(i, _)|`.
+
+- [ ] Add the last three tests. Two check `radius_from`, and one checks the panic of Step 6:
+
+  ```rust
       #[test]
       fn radius_is_the_largest_distance() {
           let graph = fixture();
@@ -901,25 +925,9 @@ I added three more tests: two for `radius_from`, and one that checks the panic o
       }
   ```
 
-  Notes on the new test code:
-
-  1. `|&(i, _)|` takes the pair out of the reference. `_` means "I do not need this part".
-     `all(...)` is the Python `all(...)`.
-  2. `ids.sort()` works on `Vec<u64>`. Integers have a full order, so no extra argument is
-     needed. Step 11 shows what is different for floats.
-  3. `for (i, dist) in result` loops over the `Vec` itself, so the loop takes the pairs out of
-     it. We do not need `result` afterwards. `COORDS[i]` works because the position of a
-     node is its place in the file, and the file is built from `COORDS` in order.
-     `x.hypot(y)` is Python's `math.hypot(x, y)`.
-  4. `windows(2)` gives every pair of neighbours in a slice, like `zip(l, l[1:])`. `w[0].1` is
-     the second part of the first pair: tuple parts are read with `.0`, `.1`, and so on.
-  5. `result.iter().zip(expected)` pairs each result with the expected value. The pattern
-     `(&(_, dist), want)` takes the distance out of the reference.
-  6. `find` gives its closure a reference to each item, and `iter` already gives references,
-     so the pattern has two `&`: `|&&(i, _)|`.
-  7. `#[should_panic(expected = "...")]` makes the test pass only if the code panics **and**
-     the message contains the text. Without `expected`, a stub with `todo!()` would pass this
-     test, for the wrong reason.
+  `#[should_panic(expected = "...")]` makes the test pass only if the code panics **and** the
+  message contains the text. Without `expected`, a stub with `todo!()` would pass this test,
+  for the wrong reason.
 
 - [ ] Run `cargo test graph`. Expected: `9 passed; 10 failed`. The new tests fail with
   `not yet implemented`. The `should_panic` test also fails, because the message of `todo!()`
