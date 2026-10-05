@@ -4,5 +4,10 @@
     "editor.formatOnSave": true
   },
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.allTargets": true
+  "rust-analyzer.check.allTargets": true,
+  "workbench.colorCustomizations": {
+    "editorInlayHint.foreground": "#9AA5B1",
+    "editorInlayHint.typeForeground": "#9AA5B1",
+    "editorInlayHint.parameterForeground": "#9AA5B1"
+}
 }
