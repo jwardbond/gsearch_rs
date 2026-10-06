@@ -84,12 +84,23 @@ impl Graph {
         &self.adj[i]
     }
 
+    /// Gets the distance from a given node to all other nodes in the graph
     pub fn distance_from_node(&self, i: usize) -> Vec<(usize, f64)> {
-        todo!()
+        let anchor = self.coord(i);
+        let mut distances: Vec<(usize, f64)> = Vec::with_capacity(self.node_count() - 1);
+
+        for (j, p) in self.coords.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            distances.push((j, anchor.dist(*p)))
+        }
+        distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        distances
     }
 
     pub fn radius_from(&self, i: usize) -> f64 {
-        todo!()
+        self.distance_from_node(i).last().map_or(0.0, |&(_, d)| d)
     }
 }
 
@@ -287,5 +298,86 @@ mod tests {
             let (_, x, y) = COORDS[i];
             assert_close(dist, x.hypot(y));
         }
+    }
+
+    #[test]
+    fn distance_sorted_nearest_first() {
+        let graph = fixture();
+        let anchor = anchor_50(&graph);
+
+        let result = graph.distance_from_node(anchor);
+
+        // distances come back in non-decreasing order
+        assert!(result.windows(2).all(|w| w[0].1 <= w[1].1));
+    }
+
+    #[test]
+    fn distance_known_values() {
+        let graph = fixture();
+        let anchor = anchor_50(&graph);
+
+        let result = graph.distance_from_node(anchor);
+
+        // Distances should be known values
+        let ids: Vec<NodeId> = result.iter().map(|&(i, _)| graph.id(i)).collect();
+        assert_eq!(ids, vec![17, 2, 8, 33, 7]);
+        let far = 20.0_f64.hypot(20.0);
+        let expected = [3.0, 4.0, 5.0, far, far];
+        for (&(_, dist), want) in result.iter().zip(expected) {
+            assert_close(dist, want);
+        }
+    }
+
+    #[test]
+    fn coincident_node_has_zero_distance() {
+        let graph = fixture();
+        let anchor = graph.index_of(33).unwrap();
+        let twin = graph.index_of(7).unwrap();
+
+        let result = graph.distance_from_node(anchor);
+
+        // node 7 shares the anchor's coordinates, so it is kept at 0
+        let dist = result.iter().find(|&&(i, _)| i == twin).unwrap().1;
+        assert_close(dist, 0.0);
+    }
+
+    #[test]
+    fn single_node_has_no_distances() {
+        let graph = Graph::from_file(&file(&[(50, 0.0, 0.0)], &[])).unwrap();
+
+        let result = graph.distance_from_node(0);
+
+        // a lone anchor has no other nodes to measure
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn radius_is_the_largest_distance() {
+        let graph = fixture();
+        let anchor = anchor_50(&graph);
+
+        let radius = graph.radius_from(anchor);
+
+        // node 33 is the farthest from node 50
+        assert_close(radius, 20.0_f64.hypot(20.0));
+    }
+
+    #[test]
+    fn radius_of_single_node_is_zero() {
+        let graph = Graph::from_file(&file(&[(50, 0.0, 0.0)], &[])).unwrap();
+
+        let radius = graph.radius_from(0);
+
+        // no other node, so nothing is farther than the anchor itself
+        assert_close(radius, 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn distance_from_missing_index_panics() {
+        let graph = fixture();
+
+        // the fixture has nodes 0..=5, so 6 is a bug in the caller
+        graph.distance_from_node(6);
     }
 }
