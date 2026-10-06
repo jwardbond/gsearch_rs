@@ -31,7 +31,7 @@ the remaining slices.
 | 1 | [Read a graph file](slice-01-read-json.md) | `gsearch <file>` prints `gd00000_q: 3 nodes, 3 edges`; a 238 MB graph loads in under a second | written |
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
-| 4 | Spatial index and crop | `query_radius` and `make_crop` (connected component of the anchor). Port `test_spatial.py` | outline |
+| 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `make_crop` by breadth-first search; `cargo test spatial` shows `16 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
 | 5 | Node matching | Annulus masks, handedness split, injective assignments, `get_candidate_matches`. Port `test_align_nodes.py` | outline |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
 | 7 | Edge routing | Dijkstra with a binary heap, `find_paths`, `align_and_score`. Port `TestFindPaths` | outline |
@@ -89,9 +89,11 @@ Slices 3 to 7.
   ready to use. But its generic types are harder to read in a first Rust project, and a
   crop copies more data.
 
-**D6. Spatial index (open; decide in Slice 4).** The `kiddo` crate is a KD-tree like scipy's
-`KDTree`. A uniform grid that you write yourself is a good alternative, because every query
-in gsearch uses a fixed radius.
+**D6. Spatial index (decided: `kiddo`, Slice 4).** `SpatialIndex` owns the `Graph` and a
+kiddo `ImmutableKdTree<f64, 2>`, whose item numbers are the graph positions. The
+alternatives were a uniform grid that you write yourself (every query in gsearch uses a fixed
+radius) and no index at all: a breadth-first search that only steps onto nodes inside the
+radius finds the crop by itself. Slice 9 measures that last option.
 
 **D7. External ids vs internal indices (decided, Slice 3).** The JSON ids (`8018`, `51516`)
 are only used at the edges of the program. Inside, every node is a `usize` index. This
@@ -112,6 +114,11 @@ affect the results, so the later slices copy them:
 - `query_radius` includes points exactly on the radius (`<=`), and sorts the results by
   distance.
 - `make_crop` keeps only the connected component that contains the anchor.
+- `query_radius` breaks ties in distance by position (Slice 4). Python's `np.argsort` leaves
+  the order of ties open.
+- The nodes of a crop are in breadth-first order from the anchor, so the anchor is position
+  `0` of the crop (Slice 4). The Python crop has the iteration order of a `set`, which has no
+  meaning. The crop keeps the file ids.
 - The anchor of `Q` is its first node in file order. In Rust this is position `0`.
 - `Graph::from_file` is stricter than `nx.Graph` (Slice 3): a repeated node id and an edge to a
   missing node are errors, repeated edges count once, and self-loops are dropped. None of
@@ -168,3 +175,14 @@ Each concept is explained once, where you first type it. Later slices point back
 | ranges, `filter`, `sort_by`, `total_cmp`, `f64` is not `Ord`, stable sort | Slice 3, Step 11 |
 | `fold`, passing a function by name | Slice 3, Step 12 |
 | `Instant`, `eprintln!` | Slice 3, Step 14 |
+| a shared `#[cfg(test)]` module, `//!` doc comments, privacy of a private module | Slice 4, Step 1 |
+| collecting into a `HashMap`, `filter_map`, `E0282` (type annotations needed) | Slice 4, Step 3 |
+| a message on `assert_eq!`, a closure with a block body | Slice 4, Step 3 |
+| generic types, const generic parameters, arrays (`[f64; 2]`) | Slice 4, Step 5 |
+| a struct that owns another struct, a getter that returns `&T` | Slice 4, Step 5 |
+| builder chains, `as` casts | Slice 4, Step 7 |
+| `Ordering`, `then`, sorting with a tie-break | Slice 4, Step 8 |
+| `let` with a pattern (`let &(_, x, y) = ...`) | Slice 4, Step 9 |
+| `HashSet`, `VecDeque`, `while let`, breadth-first search | Slice 4, Step 11 |
+| `cargo test -- --nocapture` | Slice 4, Step 12 |
+| `args().skip(1)` and `next()`, shadowing | Slice 4, Step 13 |
