@@ -102,6 +102,49 @@ impl Graph {
     pub fn radius_from(&self, i: usize) -> f64 {
         self.distance_from_node(i).last().map_or(0.0, |&(_, d)| d)
     }
+
+    /// Makes the induced subgraph of the given nodes.
+    pub fn subgraph(&self, keep: &[usize]) -> Graph {
+        // build old -> new index map
+        let mut new_of = HashMap::with_capacity(keep.len());
+
+        // build the new graph data
+        let mut ids: Vec<NodeId> = Vec::with_capacity(keep.len());
+        let mut coords: Vec<Point> = Vec::with_capacity(keep.len());
+        let mut index_of: HashMap<NodeId, usize> = HashMap::with_capacity(keep.len());
+
+        for (pos_new, &pos_old) in keep.iter().enumerate() {
+            new_of.insert(pos_old, pos_new);
+
+            index_of.insert(self.ids[pos_old], pos_new);
+            ids.push(self.ids[pos_old]);
+            coords.push(self.coords[pos_old]);
+        }
+        assert_eq!(new_of.len(), keep.len(), "keep has a repeated position");
+
+        let mut adj: Vec<Vec<usize>> = keep
+            .iter()
+            .map(|&i| {
+                self.adj[i]
+                    .iter()
+                    .filter_map(|j| new_of.get(j))
+                    .copied()
+                    .collect()
+            })
+            .collect();
+
+        for n in &mut adj {
+            n.sort_unstable();
+            n.dedup();
+        }
+
+        Graph {
+            ids,
+            coords,
+            adj,
+            index_of,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -336,5 +379,43 @@ mod tests {
 
         // the fixture has nodes 0..=5, so 6 is a bug in the caller
         graph.distance_from_node(6);
+    }
+
+    #[test]
+    fn subgraph_follows_the_order_of_keep() {
+        let graph = fixture();
+        let keep = [3, 2, 0]; // ids 8, 17, 50
+
+        let sub = graph.subgraph(&keep);
+
+        // node k of the subgraph is node keep[k] of the graph
+        assert_eq!(sub.node_count(), 3);
+        for (k, &i) in keep.iter().enumerate() {
+            assert_eq!(sub.id(k), graph.id(i));
+            assert_eq!(sub.coord(k), graph.coord(i));
+            assert_eq!(sub.index_of(graph.id(i)), Some(k));
+        }
+    }
+
+    #[test]
+    fn subgraph_keeps_edges_between_kept_nodes() {
+        let graph = fixture();
+
+        let sub = graph.subgraph(&[3, 2, 0]); // ids 8, 17, 50
+
+        // 8-17 and 17-50 stay; 50-2 goes, because node 2 is not kept
+        assert_eq!(sub.edge_count(), 2);
+        assert_eq!(sub.neighbors(0), &[1]);
+        assert_eq!(sub.neighbors(1), &[0, 2]);
+        assert_eq!(sub.neighbors(2), &[1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "repeated position")]
+    fn subgraph_rejects_repeated_position() {
+        let graph = fixture();
+
+        // position 0 twice would give the subgraph two nodes with id 50
+        graph.subgraph(&[0, 1, 0]);
     }
 }
