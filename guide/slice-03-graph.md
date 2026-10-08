@@ -43,12 +43,12 @@ adjacency    [1, 2]   [0, 4]   [0, 3]   [2]      [1, 5]     [4]
 ```
 
 The table is the test graph of `tests/test_core.py`. A fourth structure, `index_of`, is a
-dictionary from file id to position: `{50: 0, 2: 1, 17: 2, ...}`. The code uses `index_of` once
+dictionary from NodeId to position: `{50: 0, 2: 1, 17: 2, ...}`. The code uses `index_of` once
 at the start, to turn an id from the file into a position. After that, everything uses
 positions. The Python code does the same job with `list.index(...)` and
 `{n: i for i, n in enumerate(...)}` in many places.
 
-There is one more benefit. A file id has the type `NodeId` (`u64`) and a position has the type
+There is one more benefit. A node id has the type `NodeId` (`u64`) and a position has the type
 `usize`. These are two different types, so the compiler rejects a call that mixes them. The
 Python test file says that its ids are "deliberately non-contiguous and out of order so that a
 mix-up between an insertion index and a node id cannot pass unnoticed". In Rust, most of these
@@ -106,7 +106,7 @@ use crate::io::NodeId;
 
 /// An undirected graph with 2D node coordinates.
 ///
-/// Every node is a position `0..node_count()`. File ids only appear in `id` and `index_of`.
+/// Every node is a position `0..node_count()`. NodeIds only appear in `id` and `index_of`.
 pub struct Graph {
     ids: Vec<NodeId>,
     coords: Vec<Point>,
