@@ -65,3 +65,4 @@ is to ask fewer question.
   poor ones.
 - **Being concise is good.** But the terse, parallel structure with lots of lists and em dashes is
   annoying to read.
+- Get straight to the point and be as concise as you can.
