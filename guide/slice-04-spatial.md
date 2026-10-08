@@ -4,9 +4,9 @@
 coordinates (decision D6: the `kiddo` crate). `query_radius` finds every node within a
 distance of a point, nearest first. `make_crop` cuts out the part of the graph around an
 anchor: the nodes inside the radius that are connected to the anchor. The crop is a new, small
-`Graph`, so this slice also adds `Graph::subgraph`.
+`Graph`, so this slice also adds two `Graph` methods: `subgraph` and `connected_component`.
 
-**Outcome.** `cargo test spatial` reports `16 passed`, and this works:
+**Outcome.** `cargo test spatial` reports `13 passed`, and this works:
 
 ```text
 > cargo run --release -- data\roads\queries\gr00049_q.json data\roads\graphs\gr00049.json
@@ -23,9 +23,8 @@ graph, a crop around every node takes about 2 seconds in Rust and about 150 seco
 
 **New ideas.** A test module that other modules share; collecting into a `HashMap`;
 `filter_map`; generic types and const generic parameters; arrays (`[f64; 2]`); a query
-builder; `as` casts between number types; `Ordering` and `then` for a sort with a tie-break; a
-struct that owns another struct; `HashSet`; `VecDeque` and `while let`; breadth-first search;
-`--nocapture`; reading arguments with `next()`.
+builder; `as` casts between number types; a struct that owns another struct; `vec![x; n]`;
+`while let`; a graph search with a stack; `--nocapture`; reading arguments with `next()`.
 
 **Starting point.** Slice 3 is done. `Graph::from_file`, `coord`, `neighbors`, `index_of` and
 `radius_from` work, and `cargo test graph` reports `19 passed`.
@@ -64,6 +63,8 @@ on those nodes, and then keeps only the connected component that contains the an
 | KD-tree row `i`, `node_ids[i]` | Tree item `i` is graph position `i`, so no list is needed |
 | `query_radius` returns `(dists, ids)` | `query_radius` returns `Vec<(usize, f64)>`, like `distance_from_node` |
 | `make_crop` returns an `nx.Graph` | `make_crop` returns a new `Graph` |
+| `G.subgraph(nodes)` | `Graph::subgraph(&keep)` |
+| `nx.node_connected_component(G, n)` | `Graph::connected_component(start)`, which returns a `Graph` |
 
 Three choices need an explanation.
 
@@ -72,25 +73,30 @@ cannot break the index. In Rust, `SpatialIndex::new(graph)` moves the graph into
 (Slice 2, Step 3). The caller then cannot use the original, so nothing can change it. There
 is also no copy to pay for. Other code reads the graph through `index.graph()`.
 
-**Ties come back in position order.** Two nodes at the same distance can come back in any
-order from a KD-tree. Python sorts with `np.argsort`, which does not keep the order of equal
-values. The Rust version sorts by distance and then by position, so the result is always the
-same. Step 10 shows why this needs its own code.
+**The component search is a `Graph` method.** A connected component has nothing to do with
+coordinates, so it goes in `graph.rs`, not in the index. `make_crop` has two steps:
 
-**The crop is in breadth-first order, so the anchor is position 0.** To find the anchor's
-component, `make_crop` does a breadth-first search (BFS) from the anchor. It visits the
-anchor, then its neighbours, then their neighbours, and it only steps onto nodes inside the
-radius. The crop stores the nodes in the order of that visit. The anchor is then always
-position `0` of the crop, just as the anchor of `Q` is position `0` of `Q` (Slice 3, Step 13).
+1. Crop to the radius: `subgraph` of the nodes that `query_radius` finds. Call this graph the
+   circle.
+2. Take the component of the anchor in the circle: `circle.connected_component(start)`.
 
-The node order of the Python crop comes from the iteration order of a Python `set`, so it has
-no meaning. The crop keeps the file ids, so a result in the crop can always be turned back
-into the ids of `G`.
+The order matters. A path from the anchor can leave the circle and come back in. For
+example, `A-B-C` is a path, `A` and `C` are inside the radius, and `B` is outside it. In the
+full graph, `C` is in the component of `A`. In the circle, the edges to `B` are gone, so `C`
+is not. The crop must not contain `C`. Python does the same two steps.
+
+**The anchor is position 0 of the crop. No other order is promised.** `connected_component`
+puts its start node first, just as the anchor of `Q` is position `0` of `Q` (Slice 3,
+Step 13). The order of the other nodes has no meaning. In Python it comes from a `set`. The
+same is true for ties in `query_radius`: kiddo, like `np.argsort`, can return two nodes at the
+same distance in either order, and the tests do not depend on it. The crop keeps the NodeIds,
+so a result in the crop can always be turned back into the ids of `G`.
 
 ### The tests
 
-The Python tests are in `tests/test_spatial.py`, on the same six-node graph as Slice 3. Two
-tests are new, and three tests do not apply to Rust:
+The Python tests are in `tests/test_spatial.py`, on the same six-node graph as Slice 3. Each
+test goes to the module that owns the behaviour. A test of edges or coordinates in a crop is
+a test of `subgraph`, so it goes in `graph.rs`:
 
 | Python test | Rust test |
 |---|---|
@@ -103,16 +109,15 @@ tests are new, and three tests do not apply to Rust:
 | `test_query_radius_at_node_coords_includes_that_node` | `query_radius_at_node_coords_includes_that_node` |
 | `test_query_radius_returns_coincident_nodes` | `query_radius_returns_coincident_nodes` |
 | `test_query_radius_no_hits_returns_two_empty_lists` | `query_radius_with_no_hits_is_empty` |
-| (new) | `query_radius_breaks_ties_by_position` |
 | `test_make_crop_nodes` | `crop_has_the_nodes_within_the_radius` |
-| (new) | `crop_is_in_breadth_first_order_from_the_anchor` |
-| `test_make_crop_edges_are_induced` | `crop_edges_are_induced` |
-| `test_make_crop_preserves_node_attributes` | `crop_keeps_coordinates` |
+| (new) | `crop_starts_with_the_anchor` |
+| `test_make_crop_edges_are_induced` | `subgraph_keeps_edges_between_kept_nodes` (`graph.rs`) |
+| `test_make_crop_preserves_node_attributes` | `subgraph_follows_the_order_of_keep` (`graph.rs`) |
 | `test_make_crop_is_unaffected_by_later_source_edits` | Not needed. `Graph` has no method that changes it |
 | `test_make_crop_edits_do_not_affect_source` | Not needed, for the same reason |
 | `test_make_crop_radius_zero` | `crop_with_radius_zero_is_the_anchor` |
 | `test_make_crop_radius_zero_keeps_coincident_nodes` | `crop_with_radius_zero_keeps_coincident_nodes` |
-| `test_make_crop_keeps_only_anchor_component` | `crop_keeps_only_the_anchor_component` |
+| `test_make_crop_keeps_only_anchor_component` | `crop_drops_nodes_connected_only_outside_the_radius`, and the three `component_` tests (`graph.rs`) |
 
 The two "edits" tests protect against a Python crop that is a view of the big graph. In Rust,
 every `Graph` owns its own `Vec`s, and after `from_file` or `subgraph` no method can change
@@ -124,7 +129,7 @@ them. Neither problem can happen.
 
 ### 1. Share the test fixtures
 
-The tests of `spatial.rs` need the same six-node graph as the tests of `graph.rs`. Do not copy
+The tests of `spatial_index.rs` need the same six-node graph as the tests of `graph.rs`. Do not copy
 it. Move it into a module that only exists for tests.
 
 - [ ] Make a new file `src/test_fixtures.rs`:
@@ -221,8 +226,8 @@ because only code in `graph.rs` can fill the private fields (Slice 3, Step 2).
       }
   ```
 
-  The order of `keep` is the order of the new graph. `make_crop` uses this to put the anchor
-  at position `0`. A repeated position would give the new graph two nodes with the same id.
+  The order of `keep` is the order of the new graph. `connected_component` (Step 10) uses this
+  to put its start node at position `0`. A repeated position would give the new graph two nodes with the same id.
   Only a bug in the caller can do that, so it panics (decision D3).
 
 - [ ] Add three tests at the end of `mod tests` in `src/graph.rs`:
@@ -417,7 +422,7 @@ changes after it is built, so we use the immutable one. It gives each point an i
 the point's place in the list. If the list is in graph order, the item number is the graph
 position. Python needed the `node_ids` list for this.
 
-**Try first.** Make `src/spatial.rs` and add `pub mod spatial;` to `src/lib.rs`. Write a
+**Try first.** Make `src/spatial_index.rs` and add `pub mod spatial_index;` to `src/lib.rs`. Write a
 public struct `SpatialIndex` with two private fields: `graph: Graph` and
 `tree: ImmutableKdTree<f64, 2>`. Then write `new(graph: Graph) -> SpatialIndex`, which makes a
 `Vec<[f64; 2]>` of the coordinates in position order and builds the tree with
@@ -478,7 +483,7 @@ impl SpatialIndex {
    ```
 
    The full type has seven parameters, for the memory layout of the tree. The alias chooses
-   good values for six of them. Note the `u32`: it is the type of the item numbers. Step 9
+   good values for six of them. Note the `u32`: it is the type of the item numbers. Step 7
    needs this.
 5. `new_from_slice` returns a `Result`. Read the kiddo source and you find that it only fails
    when there are more points than a `u32` can number, which is about 4 billion. Our graphs
@@ -516,7 +521,7 @@ impl SpatialIndex {
   Python returns two separate lists, and the caller must keep them in step. One list of pairs
   cannot get out of step.
 
-- [ ] Add the test module at the end of `src/spatial.rs`, with three helpers:
+- [ ] Add the test module at the end of `src/spatial_index.rs`, with three helpers:
 
   ```rust
   #[cfg(test)]
@@ -529,7 +534,7 @@ impl SpatialIndex {
           SpatialIndex::new(fixture())
       }
 
-      /// The file ids of the positions in a query result.
+      /// The NodeIds of the positions in a query result.
       fn ids_of(index: &SpatialIndex, hits: &[(usize, f64)]) -> Vec<NodeId> {
           hits.iter().map(|&(i, _)| index.graph().id(i)).collect()
       }
@@ -621,7 +626,7 @@ impl SpatialIndex {
      `assert_close`. The square roots of 9, 16 and 25 are exact in floating point, so the
      exact compare is safe here.
 
-- [ ] Add the other five tests:
+- [ ] Add the other four tests:
 
   ```rust
       #[test]
@@ -653,20 +658,10 @@ impl SpatialIndex {
 
           let hits = index.query_radius(Point::new(20.0, 20.0), 0.5);
 
-          // both nodes at (20, 20), in file order
-          assert_eq!(ids_of(&index, &hits), vec![33, 7]);
-      }
-
-      #[test]
-      fn query_radius_breaks_ties_by_position() {
-          let nodes: Vec<(NodeId, f64, f64)> = (0..100).map(|id| (id, 0.0, 0.0)).collect();
-          let index = SpatialIndex::new(Graph::from_file(&file(&nodes, &[])).unwrap());
-
-          let hits = index.query_radius(Point::new(0.0, 0.0), 1.0);
-
-          // all 100 distances are 0.0, so the positions decide the order
-          let positions: Vec<usize> = hits.iter().map(|&(i, _)| i).collect();
-          assert_eq!(positions, (0..100).collect::<Vec<usize>>());
+          // both nodes at (20, 20), in any order
+          let mut ids = ids_of(&index, &hits);
+          ids.sort();
+          assert_eq!(ids, vec![7, 33]);
       }
 
       #[test]
@@ -679,15 +674,11 @@ impl SpatialIndex {
       }
   ```
 
-  1. `query_radius_returns_coincident_nodes` is stricter than the Python test. Python checks
-     a set. Rust checks the order too, because ties come back in position order.
-  2. `query_radius_breaks_ties_by_position` makes a graph of 100 nodes at the same point. The
-     ids are `0..100`, and the positions are the same numbers. `(0..100).collect::<Vec<usize>>()`
-     is the turbofish of Slice 3, Step 8, on `collect`. `assert_eq!` cannot find the target
-     type of a `collect` by itself, so we write it.
-  3. In the Python test, an empty result is "two empty lists". In Rust it is one empty `Vec`.
+  1. `query_radius_returns_coincident_nodes` sorts the ids before the compare. The two nodes
+     are at the same distance, and their order is not promised (see "The design").
+  2. In the Python test, an empty result is "two empty lists". In Rust it is one empty `Vec`.
 
-- [ ] Run `cargo test spatial`. Expected: `0 passed; 9 failed`, all with `not yet implemented`.
+- [ ] Run `cargo test spatial`. Expected: `0 passed; 8 failed`, all with `not yet implemented`.
   You also see warnings about unused variables in the stubs.
 
 ### 7. Write `query_radius`
@@ -751,6 +742,8 @@ You need `use kiddo::{ImmutableKdTree, SquaredEuclidean};` at the top.
    `44`). Here every `u32` fits in a 64-bit `usize`, so the cast is safe.
 6. `found.iter()` lends each result, so `hit` is a reference. Fields of a reference can be
    read directly (Slice 3, Step 6).
+7. `within` returns the results nearest first. Python sorts them itself, because scipy
+   returns them in index order. kiddo also has `.unsorted()`, which skips the sort.
 
 - [ ] Optional experiment. Remove `as usize` and run `cargo build`. Expected:
 
@@ -760,93 +753,29 @@ You need `use kiddo::{ImmutableKdTree, SquaredEuclidean};` at the top.
 
   Put `as usize` back.
 
-- [ ] Run `cargo test spatial`. Expected: `8 passed; 1 failed`.
-
-  ```text
-  ---- spatial::tests::query_radius_breaks_ties_by_position stdout ----
-  assertion `left == right` failed
-    left: [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, ..., 51, 0, 52, 2, 55, 56, ..., 98, 99, 53, 54]
-   right: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, ..., 99]
-  ```
-
-  (I shortened the lists. Your order can be different, but it is not `0, 1, 2, ...`.)
-
-### 8. Break ties by position
-
-kiddo sorts by distance, but it does not promise any order for equal distances. With 100
-nodes at the same point, the order comes from the shape of the tree. In the search, a
-different order of the crop nodes can give a different order of the matches, and Slice 8 sorts
-the matches by score. For results that are the same on every run, the tie order must be
-fixed.
-
-So we do the sort ourselves. kiddo has an `.unsorted()` setting that skips its own sort, so
-we do not sort twice.
-
-- [ ] Change `query_radius` to:
-
-  ```rust
-      pub fn query_radius(&self, point: Point, radius: f64) -> Vec<(usize, f64)> {
-          let found = self
-              .tree
-              .query(&[point.x, point.y])
-              .within::<SquaredEuclidean<f64>>(radius * radius)
-              .unsorted()
-              .execute();
-
-          let mut hits: Vec<(usize, f64)> = found
-              .iter()
-              .map(|hit| (hit.item as usize, hit.distance.sqrt()))
-              .collect();
-          hits.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-          hits
-      }
-  ```
-
-  1. The closure of `sort_by` (Slice 3, Step 11) returns an `Ordering`. `Ordering` is an enum
-     of the standard library with three variants: `Less`, `Equal` and `Greater`.
-     `a.1.total_cmp(&b.1)` compares the distances.
-  2. `.then(a.0.cmp(&b.0))` is the tie-break. If the first `Ordering` is `Equal`, `then`
-     returns the second one, the compare of the positions. Otherwise it keeps the first. In
-     Python, this is a sort with `key=lambda h: (h[1], h[0])`.
-  3. `cmp` works on `usize`, because integers are `Ord` (Slice 3, Step 11).
-
-- [ ] Run `cargo test spatial`. Expected: `9 passed; 0 failed`. You still see the warnings for
+- [ ] Run `cargo test spatial`. Expected: `8 passed; 0 failed`. You still see the warnings for
   the unused variables of `make_crop`.
 
-### 9. The `make_crop` tests
+### 8. The `make_crop` tests
 
-- [ ] Add two more helpers at the end of `mod tests` in `src/spatial.rs`:
+These tests check what `make_crop` itself does: which nodes are in the crop, and which node
+is first. The edges and the coordinates of a crop come from `subgraph`, and Step 2 tests
+them.
+
+- [ ] Add a helper at the end of `mod tests` in `src/spatial_index.rs`:
 
   ```rust
-      /// The edges of a graph as sorted pairs of file ids.
-      fn edge_ids(graph: &Graph) -> Vec<(NodeId, NodeId)> {
-          let mut edges = Vec::new();
-          for i in 0..graph.node_count() {
-              for &j in graph.neighbors(i) {
-                  if i < j {
-                      let (a, b) = (graph.id(i), graph.id(j));
-                      edges.push((a.min(b), a.max(b)));
-                  }
-              }
-          }
-          edges.sort();
-          edges
-      }
-
-      fn crop_ids(crop: &Graph) -> Vec<NodeId> {
-          (0..crop.node_count()).map(|i| crop.id(i)).collect()
+      /// The ids of a graph, sorted.
+      fn sorted_ids(graph: &Graph) -> Vec<NodeId> {
+          let mut ids: Vec<NodeId> = (0..graph.node_count()).map(|i| graph.id(i)).collect();
+          ids.sort();
+          ids
       }
   ```
 
-  1. `edge_ids` is the Rust form of `set(map(frozenset, crop.edges()))`. Each edge is in the
-     neighbour lists of both ends, so `i < j` takes it once. The smaller id goes first, so that
-     `(50, 2)` and `(2, 50)` are the same pair. Then the list is sorted. Tuples compare part
-     by part, as in Python.
-  2. `let (a, b) = (graph.id(i), graph.id(j));` makes a tuple and takes it apart in one line.
-     It is the same as two `let` lines.
-  3. `crop_ids` lists the ids of a graph in position order.
+  Only the position of the anchor is promised, so the tests compare sorted ids.
 
-- [ ] Add the seven tests:
+- [ ] Add the five tests:
 
   ```rust
       #[test]
@@ -856,41 +785,22 @@ we do not sort twice.
           let crop = index.make_crop(0, 5.0);
 
           // the same ids as a check of every node, anchor included
-          let mut ids = crop_ids(&crop);
-          ids.sort();
-          assert_eq!(ids, brute_force_within(Point::new(0.0, 0.0), 5.0));
+          assert_eq!(
+              sorted_ids(&crop),
+              brute_force_within(Point::new(0.0, 0.0), 5.0)
+          );
       }
 
       #[test]
-      fn crop_is_in_breadth_first_order_from_the_anchor() {
+      fn crop_starts_with_the_anchor() {
           let index = index();
+          let graph = index.graph();
 
-          let crop = index.make_crop(0, 5.0);
+          for anchor in 0..graph.node_count() {
+              let crop = index.make_crop(anchor, 5.0);
 
-          // the anchor first, then its neighbours, then theirs
-          assert_eq!(crop_ids(&crop), vec![50, 2, 17, 8]);
-      }
-
-      #[test]
-      fn crop_edges_are_induced() {
-          let index = index();
-
-          let crop = index.make_crop(0, 5.0);
-
-          // 17-8 stays, though it does not touch the anchor; 2-33 goes
-          assert_eq!(edge_ids(&crop), vec![(2, 50), (8, 17), (17, 50)]);
-      }
-
-      #[test]
-      fn crop_keeps_coordinates() {
-          let index = index();
-
-          let crop = index.make_crop(0, 5.0);
-
-          // each node keeps the coordinates it has in the file
-          for i in 0..crop.node_count() {
-              let &(_, x, y) = COORDS.iter().find(|n| n.0 == crop.id(i)).unwrap();
-              assert_eq!(crop.coord(i), Point::new(x, y));
+              // the anchor is position 0 of every crop
+              assert_eq!(crop.id(0), graph.id(anchor));
           }
       }
 
@@ -901,8 +811,7 @@ we do not sort twice.
           let crop = index.make_crop(0, 0.0);
 
           // only node 50 is at distance zero from itself
-          assert_eq!(crop_ids(&crop), vec![50]);
-          assert_eq!(crop.edge_count(), 0);
+          assert_eq!(sorted_ids(&crop), vec![50]);
       }
 
       #[test]
@@ -913,147 +822,257 @@ we do not sort twice.
           let crop = index.make_crop(anchor, 0.0);
 
           // node 7 is at the same point as node 33, and they share an edge
-          assert_eq!(crop_ids(&crop), vec![33, 7]);
-          assert_eq!(edge_ids(&crop), vec![(7, 33)]);
+          assert_eq!(sorted_ids(&crop), vec![7, 33]);
       }
 
       #[test]
-      fn crop_keeps_only_the_anchor_component() {
-          // node 100 is within the radius, but no edge connects it to the anchor
-          let nodes = [(1, 0.0, 0.0), (2, 1.0, 0.0), (100, 2.0, 0.0)];
-          let graph = Graph::from_file(&file(&nodes, &[(1, 2)])).unwrap();
+      fn crop_drops_nodes_connected_only_outside_the_radius() {
+          // 1 and 3 are inside the radius, but the path 1-2-3 goes through 2, which is not
+          let nodes = [(1, 0.0, 0.0), (2, 10.0, 0.0), (3, 1.0, 0.0)];
+          let graph = Graph::from_file(&file(&nodes, &[(1, 2), (2, 3)])).unwrap();
           let index = SpatialIndex::new(graph);
 
           let crop = index.make_crop(0, 5.0);
 
-          assert_eq!(crop_ids(&crop), vec![1, 2]);
+          assert_eq!(sorted_ids(&crop), vec![1]);
       }
   ```
 
   1. The anchor of most tests is position `0`, which is node 50.
-  2. `crop_is_in_breadth_first_order_from_the_anchor` is new. The neighbours of 50 are 2 and
-     17, in position order (Slice 3 sorted the lists). Node 8 is a neighbour of 17, so it
-     comes one level later. The query order would be `[50, 17, 2, 8]`, nearest first, so this
-     test can tell the two orders apart.
-  3. In `crop_keeps_coordinates`, `let &(_, x, y) = ...` takes the tuple out of the reference
-     that `find` returns, as the closure patterns of Slice 3 do. A `let` can use the same
-     patterns as a closure argument.
+  2. `crop_starts_with_the_anchor` is new. It makes a crop around every node of the fixture.
+     The hard case is node 7: node 33 is at the same point, so the query can return 33 first.
+  3. `crop_drops_nodes_connected_only_outside_the_radius` is the `A-B-C` example of "The
+     design". In the Python test, the extra node has no edges at all. This graph is
+     stricter: it also finds a component search on the full graph instead of the circle.
 
-- [ ] Run `cargo test spatial`. Expected: `9 passed; 7 failed`. The new tests fail with
+- [ ] Run `cargo test spatial`. Expected: `8 passed; 5 failed`. The new tests fail with
   `not yet implemented`.
 
-### 10. A first `make_crop`
+### 9. A first `make_crop`
 
-Build the crop in two parts. First, the subgraph of all the nodes in the radius, with no
-component search. The tests then show what the component search must add.
+Do only step 1 of "The design": crop to the radius, with no component search. The tests then
+show what step 2 must add.
 
 - [ ] Replace the stub of `make_crop`:
 
   ```rust
       pub fn make_crop(&self, anchor: usize, radius: f64) -> Graph {
           let hits = self.query_radius(self.graph.coord(anchor), radius);
-          let keep: Vec<usize> = hits.iter().map(|&(i, _)| i).collect();
-          self.graph.subgraph(&keep)
+          let in_circle: Vec<usize> = hits.iter().map(|&(i, _)| i).collect();
+          self.graph.subgraph(&in_circle)
       }
   ```
 
   This is the first half of the Python function: `query_radius` around the anchor, then
   `self.graph.subgraph(neighbourhood)`.
 
-- [ ] Run `cargo test crop`. Expected: `5 passed; 2 failed`.
+- [ ] Run `cargo test crop`. Expected: `3 passed; 2 failed`.
 
   ```text
-  ---- spatial::tests::crop_is_in_breadth_first_order_from_the_anchor stdout ----
-    left: [50, 17, 2, 8]
-   right: [50, 2, 17, 8]
-  ---- spatial::tests::crop_keeps_only_the_anchor_component stdout ----
-    left: [1, 2, 100]
-   right: [1, 2]
+  ---- spatial_index::tests::crop_drops_nodes_connected_only_outside_the_radius stdout ----
+    left: [1, 3]
+   right: [1]
+  ---- spatial_index::tests::crop_starts_with_the_anchor stdout ----
+    left: 33
+   right: 7
   ```
 
-  The first failure is the query order, nearest first. The second is node 100: it is inside
-  the radius, but it is not connected to the anchor.
+  The first failure is node 3. It is inside the radius, but its only path to the anchor goes
+  outside. The second failure is the coincident pair. The anchor is node 7, but the query
+  returned node 33 first, at the same distance of zero. So the query order cannot put the
+  anchor first. (Your tie order can be different. Then only the first test fails.)
 
-### 11. Breadth-first search
+### 10. `connected_component`
 
-The Python code calls `nx.node_connected_component`. We write it ourselves (decision D5). A
-breadth-first search keeps a queue of nodes to visit. It takes the node at the front, and it
-puts each neighbour that it has not seen yet at the back. Here, a neighbour must also be
-inside the radius.
+The Python code calls `nx.node_connected_component`. We write it ourselves (decision D5), as a
+method of `Graph` that returns the component as a new `Graph`.
 
-Python has the same tools: `collections.deque` for the queue, and a `set` for the nodes in the
-radius that are not visited yet. The Python version would be:
+The search keeps a stack of nodes to visit, and it remembers which nodes it has seen. It takes
+a node off the stack and puts each neighbour that it has not seen yet on the stack. When the
+stack is empty, it has seen every node that a path from the start reaches. In Python:
 
 ```python
-unvisited = {i for i, _ in hits} - {anchor}
-keep, queue = [anchor], deque([anchor])
-while queue:
-    i = queue.popleft()
+seen = [False] * graph.number_of_nodes()
+seen[start] = True
+keep, stack = [start], [start]
+while stack:
+    i = stack.pop()
     for j in graph.neighbors(i):
-        if j in unvisited:
-            unvisited.remove(j)
+        if not seen[j]:
+            seen[j] = True
             keep.append(j)
-            queue.append(j)
+            stack.append(j)
 ```
 
-**Try first.** Write this in Rust in place of the `let keep` line. The Rust types are
-`HashSet` and `VecDeque`, both in `std::collections`. Two methods help:
-`HashSet::remove(&x)` returns `true` if `x` was in the set, and `VecDeque::pop_front()`
-returns an `Option`.
+The order of the visit does not matter, because only the start node must be first. A stack is
+a plain `Vec`, with `push` and `pop`. A queue gives a breadth-first search. That needs a
+`VecDeque` and finds the same nodes.
 
-**Suggested code.** Add `use std::collections::{HashSet, VecDeque};` at the top of the file,
-above the `kiddo` line. Then:
+- [ ] Add a stub inside `impl Graph` in `src/graph.rs`, after `subgraph`:
+
+  ```rust
+      /// The component of `start`: every node that a path from `start` reaches.
+      ///
+      /// `start` is position `0` of the result.
+      pub fn connected_component(&self, start: usize) -> Graph {
+          todo!()
+      }
+  ```
+
+- [ ] Add three tests at the end of `mod tests` in `src/graph.rs`:
+
+  ```rust
+      #[test]
+      fn component_starts_with_start() {
+          let graph = fixture();
+
+          let component = graph.connected_component(2); // id 17
+
+          // the fixture is one component, so every node is in it
+          assert_eq!(component.id(0), 17);
+          assert_eq!(component.node_count(), 6);
+          assert_eq!(component.edge_count(), 5);
+      }
+
+      #[test]
+      fn component_keeps_only_connected_nodes() {
+          // 1-2-3 is a path; 100 has no edge
+          let nodes = [(1, 0.0, 0.0), (2, 1.0, 0.0), (3, 2.0, 0.0), (100, 3.0, 0.0)];
+          let graph = Graph::from_file(&file(&nodes, &[(1, 2), (2, 3)])).unwrap();
+
+          let component = graph.connected_component(0);
+
+          let mut ids: Vec<NodeId> = (0..component.node_count())
+              .map(|i| component.id(i))
+              .collect();
+          ids.sort();
+          assert_eq!(ids, vec![1, 2, 3]);
+          assert_eq!(component.edge_count(), 2);
+      }
+
+      #[test]
+      fn component_of_isolated_node_is_that_node() {
+          let nodes = [(1, 0.0, 0.0), (2, 1.0, 0.0), (100, 3.0, 0.0)];
+          let graph = Graph::from_file(&file(&nodes, &[(1, 2)])).unwrap();
+
+          let component = graph.connected_component(2); // id 100
+
+          assert_eq!(component.node_count(), 1);
+          assert_eq!(component.id(0), 100);
+          assert_eq!(component.edge_count(), 0);
+      }
+  ```
+
+  The fixture is one component, because the edge 2-33 joins the two groups.
+  `component_starts_with_start` starts at node 17, which is not position `0`, so the test
+  can see that the start goes first.
+
+- [ ] Run `cargo test graph`. Expected: `22 passed; 3 failed`, all with `not yet implemented`.
+
+**Try first.** Write the body. A `Vec<bool>` holds `seen`. `Vec::pop()` returns an `Option`:
+`Some(last)`, or `None` when the `Vec` is empty. The last line calls `subgraph`.
+
+**Suggested code.**
 
 ```rust
-    pub fn make_crop(&self, anchor: usize, radius: f64) -> Graph {
-        let hits = self.query_radius(self.graph.coord(anchor), radius);
-        let mut unvisited: HashSet<usize> = hits.iter().map(|&(i, _)| i).collect();
-        unvisited.remove(&anchor);
+    pub fn connected_component(&self, start: usize) -> Graph {
+        let mut seen = vec![false; self.node_count()];
+        seen[start] = true;
 
-        let mut keep = vec![anchor];
-        let mut queue = VecDeque::from([anchor]);
-        while let Some(i) = queue.pop_front() {
-            for &j in self.graph.neighbors(i) {
-                if unvisited.remove(&j) {
+        let mut keep = vec![start];
+        let mut stack = vec![start];
+        while let Some(i) = stack.pop() {
+            for &j in self.neighbors(i) {
+                if !seen[j] {
+                    seen[j] = true;
                     keep.push(j);
-                    queue.push_back(j);
+                    stack.push(j);
                 }
             }
         }
 
-        self.graph.subgraph(&keep)
+        self.subgraph(&keep)
     }
 ```
 
 **Explanation.**
 
-1. `HashSet<usize>` is a Python `set` of `usize`. `collect()` builds it, the same as the
-   `HashMap` of Step 3: `collect` can build any collection, and the type on the `let` line
-   chooses which one.
-2. `unvisited.remove(&anchor)` takes the anchor out first, because it is already in `keep`.
-   The anchor is always in `hits`, at distance zero.
-3. `VecDeque` is a queue with fast operations at both ends, like `collections.deque`.
-   `VecDeque::from([anchor])` makes a queue from an array. A `Vec` would also work, but
-   `Vec::remove(0)` moves every other element one place.
-4. `while let Some(i) = queue.pop_front()` is a loop with a pattern. Each time round, it calls
-   `pop_front` and tries to match the result with `Some(i)`. If it matches, the value goes
-   into `i` and the body runs. When the queue is empty, `pop_front` returns `None`, the
-   pattern does not match, and the loop stops. It replaces the Python
-   `while queue: i = queue.popleft()`, and you cannot forget the check for an empty queue.
-5. `if unvisited.remove(&j)` does the test and the removal in one call. A node that is not in
-   the radius was never in the set. A node that was visited before is not in the set any
-   more. In both cases, `remove` returns `false`. Each node is added to `keep` at most once,
-   so `subgraph` never sees a repeated position.
-6. `for &j in self.graph.neighbors(i)` loops over the slice that `neighbors` lends. `&j`
-   copies each `usize` out of the reference.
-7. `keep` is in visit order, so `subgraph` puts the anchor at position `0`.
+1. `vec![false; self.node_count()]` makes a `Vec` with `node_count()` copies of `false`. It is
+   the Python `[False] * n`. The positions are `0..n`, so a position is also an index into
+   `seen`. This is faster than a `HashSet`, which must hash each position.
+2. `while let Some(i) = stack.pop()` is a loop with a pattern. Each time round, it calls `pop`
+   and tries to match the result with `Some(i)`. If it matches, the value goes into `i` and
+   the body runs. When the stack is empty, `pop` returns `None`, the pattern does not match,
+   and the loop stops. It replaces the Python `while stack: i = stack.pop()`, and you cannot
+   forget the check for an empty stack.
+3. A node is marked as seen when it goes onto the stack, not when it comes off. So no node goes
+   onto the stack twice, and `keep` never has a repeated position. `subgraph` panics on a
+   repeated position.
+4. `for &j in self.neighbors(i)` loops over the slice that `neighbors` lends. `&j` copies each
+   `usize` out of the reference.
+5. `keep` starts with `start`, so `subgraph` puts it at position `0`.
+
+- [ ] Run `cargo test graph`. Expected: `25 passed; 0 failed`.
+
+### 11. Finish `make_crop`
+
+**Try first.** Add step 2 of "The design" to `make_crop`. Keep the circle in a variable, and
+return its component.
+
+The obvious version has a bug. Write it first, and let the tests find the bug:
+
+- [ ] Change the last line of `make_crop` to:
+
+  ```rust
+          let circle = self.graph.subgraph(&in_circle);
+          circle.connected_component(anchor)
+  ```
+
+- [ ] Run `cargo test crop`. Expected: `3 passed; 2 failed`.
+
+  ```text
+  ---- spatial_index::tests::crop_starts_with_the_anchor stdout ----
+    left: 50
+   right: 2
+  ---- spatial_index::tests::crop_with_radius_zero_keeps_coincident_nodes stdout ----
+  index out of bounds: the len is 2 but the index is 4
+  ```
+
+  `anchor` is a position in `self.graph`, but `connected_component` takes a position in
+  `circle`. The two graphs have different positions. In the first failure, the anchor is
+  node 2, at position 1 of the graph. In the circle, position 1 is node 50, so the search
+  starts at 50. In the second failure, the anchor is node 33, at position 4. The circle only
+  has 2 nodes, so `seen[4]` panics.
+
+  The compiler cannot find this bug: both positions are `usize`.
+
+- [ ] Translate the anchor to its position in the circle:
+
+  ```rust
+      pub fn make_crop(&self, anchor: usize, radius: f64) -> Graph {
+          let hits = self.query_radius(self.graph.coord(anchor), radius);
+          let in_circle: Vec<usize> = hits.iter().map(|&(i, _)| i).collect();
+          let circle = self.graph.subgraph(&in_circle);
+
+          // the anchor has a new position in the circle
+          let start = circle.index_of(self.graph.id(anchor)).unwrap();
+          circle.connected_component(start)
+      }
+  ```
+
+  1. The NodeId is the same in both graphs, so it carries the anchor from one graph to the
+     other. `self.graph.id(anchor)` gives the NodeId, and `circle.index_of` gives its
+     position in the circle. This is one reason why `subgraph` keeps the NodeIds.
+  2. Do not use `0` as the start. Step 9 showed that a coincident node can come first.
+  3. The anchor is at distance zero from itself, so it is always in the circle. A `None` here
+     is a bug, so `unwrap` is correct (decision D3).
 
 - [ ] Run `cargo test`. Expected: `51 passed; 0 failed`. That is 13 tests from Slices 1 and 2,
-  22 graph tests and 16 spatial tests.
+  25 graph tests and 13 spatial tests.
 
 ### 12. Look at it
 
-- [ ] Add a temporary test at the end of `mod tests` in `src/spatial.rs`:
+- [ ] Add a temporary test at the end of `mod tests` in `src/spatial_index.rs`:
 
   ```rust
       #[test]
@@ -1070,14 +1089,15 @@ above the `kiddo` line. Then:
 - [ ] Run `cargo test look -- --nocapture`. Expected:
 
   ```text
-  0: id 50 at Point { x: 0.0, y: 0.0 }, neighbours [2, 17]
-  1: id 2 at Point { x: 4.0, y: 0.0 }, neighbours [50]
-  2: id 17 at Point { x: 0.0, y: 3.0 }, neighbours [50, 8]
+  0: id 50 at Point { x: 0.0, y: 0.0 }, neighbours [17, 2]
+  1: id 17 at Point { x: 0.0, y: 3.0 }, neighbours [50, 8]
+  2: id 2 at Point { x: 4.0, y: 0.0 }, neighbours [50]
   3: id 8 at Point { x: 3.0, y: 4.0 }, neighbours [17]
   ```
 
   Compare it with the table at the top of `test_spatial.py`. Node 2 lost its edge to 33,
-  because 33 is outside the radius.
+  because 33 is outside the radius. Only the first line is fixed: the anchor is position `0`.
+  The order of the other lines comes from the query and the search.
 
   `cargo test` normally hides what a passing test prints, like `pytest` without `-s`.
   `--nocapture` shows it. The `--` before it means "the rest is for the test program, not for
@@ -1099,7 +1119,7 @@ then crops around every node, as the search loop of `run_gsearch` will.
 
   use gsearch::graph::Graph;
   use gsearch::io::read_graph_file;
-  use gsearch::spatial::SpatialIndex;
+  use gsearch::spatial_index::SpatialIndex;
 
   /// The default tolerance of the Python CLI. Slice 8 makes it an argument.
   const TOL: f64 = 10.0;
@@ -1309,8 +1329,8 @@ This is the Rust form of `test_init_copies_graph`.
   2.5 minutes. Expected: `crop every node: 148.848 s` (about) and `mean crop size: 94.56
   nodes`. Rust does the same work in about 2 seconds, about 75 times faster, on one thread.
 
-Most of the Rust time is memory allocation: every crop builds a `HashSet`, a `VecDeque`, a
-`HashMap` and a `Graph` with its own `Vec`s. Slice 9 measures this. Slice 10 runs the crops on
+Most of the Rust time is memory allocation: every crop builds two `Graph`s (the circle and its
+component), each with its own `Vec`s and `HashMap`s, and a `seen` list the size of the circle. Slice 9 measures this. Slice 10 runs the crops on
 all cores.
 
 ### 16. Format, lint, commit
@@ -1336,7 +1356,10 @@ masks are plain loops over two small graphs (decision D4).
 Two things in this slice are deliberately simple, and Slice 9 comes back to them:
 
 - `make_crop` sorts the query results, but the crop does not need the sort. It only needs the
-  set of positions.
-- The breadth-first search could test the distance of each neighbour directly, with no tree
+  set of positions. `.unsorted()` skips it.
+- `make_crop` builds the circle as a full `Graph` and then throws it away. A search on the
+  big graph that only steps onto nodes inside the radius gives the same crop with one
+  `Graph`.
+- That search could also test the distance of each neighbour directly, with no tree
   at all. That visits only the nodes that are connected to the anchor. Slice 9 measures if it
   is faster than the KD-tree query.

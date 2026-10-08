@@ -31,7 +31,7 @@ the remaining slices.
 | 1 | [Read a graph file](slice-01-read-json.md) | `gsearch <file>` prints `gd00000_q: 3 nodes, 3 edges`; a 238 MB graph loads in under a second | written |
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
-| 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `make_crop` by breadth-first search; `cargo test spatial` shows `16 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
+| 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `Graph::connected_component`, `make_crop`; `cargo test spatial` shows `13 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
 | 5 | Node matching | Annulus masks, handedness split, injective assignments, `get_candidate_matches`. Port `test_align_nodes.py` | outline |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
 | 7 | Edge routing | Dijkstra with a binary heap, `find_paths`, `align_and_score`. Port `TestFindPaths` | outline |
@@ -48,7 +48,7 @@ the remaining slices.
 | `io.py` | `io.rs` | 1 |
 | `_euclidean_distance`, `_dist_to_segment`, `_cross_signs` | `geometry.rs` | 2 |
 | `networkx.Graph` | `graph.rs` (your own type, or `petgraph`) | 3 |
-| `spatial_graph_index.py` | `spatial.rs` | 4 |
+| `spatial_graph_index.py` | `spatial_index.rs` | 4 |
 | `align_nodes.py` | `align_nodes.rs` | 5 |
 | `_align_graph` | `geometry.rs` or `procrustes.rs` | 6 |
 | `align_edges.py` | `align_edges.rs` | 7 |
@@ -82,7 +82,7 @@ Masks and distances become loops over slices. Procrustes in 2D has a closed form
 **D5. Graph storage (decided: own compact struct, written in Slice 3).** This choice shapes
 Slices 3 to 7.
 - *Own compact struct (chosen).* Node ids, coordinates and adjacency lists are plain
-  `Vec`s indexed by position (`0..n`), plus a `HashMap` from file id to position. It uses
+  `Vec`s indexed by position (`0..n`), plus a `HashMap` from NodeId to position. It uses
   little memory for 10^6 nodes and is easy to crop. You write Dijkstra and the
   connected-component search yourself (about 60 lines in total).
 - *`petgraph` crate.* This is closer to networkx: Dijkstra and connected components are
@@ -114,11 +114,11 @@ affect the results, so the later slices copy them:
 - `query_radius` includes points exactly on the radius (`<=`), and sorts the results by
   distance.
 - `make_crop` keeps only the connected component that contains the anchor.
-- `query_radius` breaks ties in distance by position (Slice 4). Python's `np.argsort` leaves
-  the order of ties open.
-- The nodes of a crop are in breadth-first order from the anchor, so the anchor is position
-  `0` of the crop (Slice 4). The Python crop has the iteration order of a `set`, which has no
-  meaning. The crop keeps the file ids.
+- The order of ties in `query_radius` is not promised, as with Python's `np.argsort`.
+- `make_crop` first takes the subgraph inside the radius, and then the component of the anchor
+  in that subgraph (`Graph::connected_component`, Slice 4). The anchor is position `0` of the
+  crop. The order of the other crop nodes has no meaning, as in Python, where it comes from a
+  `set`. The crop keeps the NodeIds.
 - The anchor of `Q` is its first node in file order. In Rust this is position `0`.
 - `Graph::from_file` is stricter than `nx.Graph` (Slice 3): a repeated node id and an edge to a
   missing node are errors, repeated edges count once, and self-loops are dropped. None of
@@ -181,8 +181,6 @@ Each concept is explained once, where you first type it. Later slices point back
 | generic types, const generic parameters, arrays (`[f64; 2]`) | Slice 4, Step 5 |
 | a struct that owns another struct, a getter that returns `&T` | Slice 4, Step 5 |
 | builder chains, `as` casts | Slice 4, Step 7 |
-| `Ordering`, `then`, sorting with a tie-break | Slice 4, Step 8 |
-| `let` with a pattern (`let &(_, x, y) = ...`) | Slice 4, Step 9 |
-| `HashSet`, `VecDeque`, `while let`, breadth-first search | Slice 4, Step 11 |
+| `vec![x; n]`, `while let`, a graph search with a stack | Slice 4, Step 10 |
 | `cargo test -- --nocapture` | Slice 4, Step 12 |
 | `args().skip(1)` and `next()`, shadowing | Slice 4, Step 13 |
