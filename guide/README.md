@@ -32,7 +32,7 @@ the remaining slices.
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
 | 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `Graph::connected_component`, `make_crop`; `cargo test spatial` shows `13 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
-| 5 | Node matching | Annulus masks, handedness split, injective assignments, `get_candidate_matches`. Port `test_align_nodes.py` | outline |
+| 5 | [Node matching](slice-05-align-nodes.md) | Annulus masks, handedness split, injective assignments, `get_candidate_matches`; `cargo test align` shows `24 passed`; poses around every node of `gr00049`, compared with Python | written |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
 | 7 | Edge routing | Dijkstra with a binary heap, `find_paths`, `align_and_score`. Port `TestFindPaths` | outline |
 | 8 | Pipeline and CLI | `run_gsearch`, `clap` arguments, JSON results, progress bar, logging. First full search on a real graph, compared with Python | outline |
@@ -124,7 +124,11 @@ affect the results, so the later slices copy them:
   missing node are errors, repeated edges count once, and self-loops are dropped. None of
   these occurs in the data.
 - `radius_from` of a graph with one node is `0.0`. Python's `max` raises `ValueError` there.
-  This is the only planned difference from Python.
+  This is a planned difference from Python.
+- A query with one node has no candidate poses in Rust (Slice 5). Python uses the anchor as its
+  own alignment node there. This is the second planned difference.
+- A pose is a `Vec<usize>`: `pose[i]` is the crop position matched to Q position `i` (D7).
+  Python uses a `{Q id: G id}` dict.
 - `get_candidate_matches` chooses the alignment node with the fewest annulus matches, and
   takes the first one if there is a tie.
 - Nodes on the anchor-to-alignment axis go into both the rotation and the reflection mask.
@@ -184,3 +188,9 @@ Each concept is explained once, where you first type it. Later slices point back
 | `vec![x; n]`, `while let`, a graph search with a stack | Slice 4, Step 10 |
 | `cargo test -- --nocapture` | Slice 4, Step 12 |
 | `args().skip(1)` and `next()`, shadowing | Slice 4, Step 13 |
+| a type alias as a name for a table (`Vec<Vec<bool>>`), `match` is a keyword | Slice 5, Step 1 |
+| struct literals in a `const`, nested `vec![vec![x; m]; n]`, array to slice, `==` on `Vec`s | Slice 5, Step 2 |
+| recursion with `&mut` parameters, reborrowing, no generators, a closure cannot call itself, `contains` | Slice 5, Step 5 |
+| `flatten`, `count`, a closure with a typed parameter, `for x in [a, b]` | Slice 5, Step 6 |
+| `&=` on `bool`, `match` on a tuple, or-patterns (`\|`) and `_` | Slice 5, Step 7 |
+| `min_by_key` (first of equal keys), `let ... else`, `extend`, `Vec == slice` | Slice 5, Steps 8-9 |

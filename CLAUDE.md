@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+The code in this file is for research/prototyping only.
+
+## Response style
+- Be concise. Answer yes/no questions with yes or no.
+- Prefer responses in ASD-ste100
+
 ## Project
 
 A Rust port of the Python package in `../gsearch` (shape search in large geometric graphs; read
