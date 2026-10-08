@@ -145,6 +145,26 @@ impl Graph {
             index_of,
         }
     }
+
+    /// Gets the connected component of the graph that contains the given node.
+    pub fn cc_containing(&self, i: usize) -> Graph {
+        let mut seen = vec![false; self.node_count()];
+        seen[i] = true;
+        let mut stack = vec![i];
+        let mut keep = vec![i];
+
+        while let Some(i) = stack.pop() {
+            for &j in self.neighbors(i) {
+                if !seen[j] {
+                    seen[j] = true;
+                    keep.push(j);
+                    stack.push(j);
+                }
+            }
+        }
+
+        self.subgraph(&keep)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -417,5 +437,45 @@ mod tests {
 
         // position 0 twice would give the subgraph two nodes with id 50
         graph.subgraph(&[0, 1, 0]);
+    }
+
+    #[test]
+    fn cc_starts_with_start() {
+        let graph = fixture();
+
+        let component = graph.cc_containing(2); // id 17
+
+        // the fixture is one component, so every node is in it
+        assert_eq!(component.id(0), 17);
+        assert_eq!(component.node_count(), 6);
+        assert_eq!(component.edge_count(), 5);
+    }
+
+    #[test]
+    fn cc_keeps_only_connected_nodes() {
+        // 1-2-3 is a path; 100 has no edge
+        let nodes = [(1, 0.0, 0.0), (2, 1.0, 0.0), (3, 2.0, 0.0), (100, 3.0, 0.0)];
+        let graph = Graph::from_file(&file(&nodes, &[(1, 2), (2, 3)])).unwrap();
+
+        let component = graph.cc_containing(0);
+
+        let mut ids: Vec<NodeId> = (0..component.node_count())
+            .map(|i| component.id(i))
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec![1, 2, 3]);
+        assert_eq!(component.edge_count(), 2);
+    }
+
+    #[test]
+    fn cc_of_isolated_node_is_that_node() {
+        let nodes = [(1, 0.0, 0.0), (2, 1.0, 0.0), (100, 3.0, 0.0)];
+        let graph = Graph::from_file(&file(&nodes, &[(1, 2)])).unwrap();
+
+        let component = graph.cc_containing(2); // id 100
+
+        assert_eq!(component.node_count(), 1);
+        assert_eq!(component.id(0), 100);
+        assert_eq!(component.edge_count(), 0);
     }
 }
