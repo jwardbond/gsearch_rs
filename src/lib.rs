@@ -1,3 +1,4 @@
+pub mod align_nodes;
 pub mod geometry;
 pub mod graph;
 pub mod io;

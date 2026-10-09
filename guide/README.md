@@ -32,7 +32,7 @@ the remaining slices.
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
 | 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `Graph::connected_component`, `make_crop`; `cargo test spatial` shows `13 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
-| 5 | [Node matching](slice-05-align-nodes.md) | Annulus masks, handedness split, injective assignments, `get_candidate_matches`; `cargo test align` shows `24 passed`; poses around every node of `gr00049`, compared with Python | written |
+| 5 | [Node matching](slice-05-align-nodes.md) | `get_candidate_matches`, built one part at a time: annulus matches (a list per query node, not a mask), alignment node, injective assignments, second ring, handedness split; `cargo test align` shows `31 passed`; poses around every node of `gr00049`, compared with Python | written |
 | 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
 | 7 | Edge routing | Dijkstra with a binary heap, `find_paths`, `align_and_score`. Port `TestFindPaths` | outline |
 | 8 | Pipeline and CLI | `run_gsearch`, `clap` arguments, JSON results, progress bar, logging. First full search on a real graph, compared with Python | outline |
@@ -77,7 +77,9 @@ program (a missing file, bad JSON) return `Result`. For now the error type is
 
 **D4. Plain loops and a small `Point` type, no matrix crate (decided, Slice 2).** In Rust, a
 loop compiles to fast machine code, so we do not need numpy-style vectorization to be fast.
-Masks and distances become loops over slices. Procrustes in 2D has a closed form (Slice 6).
+Distances become loops over slices. The boolean masks of `align_nodes.py` become lists of
+matches, one `Vec<usize>` per query node (Slice 5): a mask is only there so that numpy can
+work on whole arrays, and the rows are sparse. Procrustes in 2D has a closed form (Slice 6).
 
 **D5. Graph storage (decided: own compact struct, written in Slice 3).** This choice shapes
 Slices 3 to 7.
@@ -127,11 +129,15 @@ affect the results, so the later slices copy them:
   This is a planned difference from Python.
 - A query with one node has no candidate poses in Rust (Slice 5). Python uses the anchor as its
   own alignment node there. This is the second planned difference.
+- `get_candidate_matches` returns `Option<Vec<Pose>>` (Slice 5). `None` means "no pose", where
+  Python returns `[]`. `Some(poses)` always holds at least one pose.
 - A pose is a `Vec<usize>`: `pose[i]` is the crop position matched to Q position `i` (D7).
   Python uses a `{Q id: G id}` dict.
 - `get_candidate_matches` chooses the alignment node with the fewest annulus matches, and
   takes the first one if there is a tie.
-- Nodes on the anchor-to-alignment axis go into both the rotation and the reflection mask.
+- Nodes on the anchor-to-alignment axis go into both the rotation and the reflection table.
+- The matches of each query node are in increasing crop position, as `np.flatnonzero` gives
+  them, so the poses come out in the same order as in Python.
 - `_align_graph` allows reflections. It finds the best orthogonal matrix, not only the best
   rotation.
 - The final score is `node_score + weight * edge_score`. Note that the docstring of
@@ -188,9 +194,12 @@ Each concept is explained once, where you first type it. Later slices point back
 | `vec![x; n]`, `while let`, a graph search with a stack | Slice 4, Step 10 |
 | `cargo test -- --nocapture` | Slice 4, Step 12 |
 | `args().skip(1)` and `next()`, shadowing | Slice 4, Step 13 |
-| a type alias as a name for a table (`Vec<Vec<bool>>`), `match` is a keyword | Slice 5, Step 1 |
-| struct literals in a `const`, nested `vec![vec![x; m]; n]`, array to slice, `==` on `Vec`s | Slice 5, Step 2 |
-| recursion with `&mut` parameters, reborrowing, no generators, a closure cannot call itself, `contains` | Slice 5, Step 5 |
-| `flatten`, `count`, a closure with a typed parameter, `for x in [a, b]` | Slice 5, Step 6 |
-| `&=` on `bool`, `match` on a tuple, or-patterns (`\|`) and `_` | Slice 5, Step 7 |
-| `min_by_key` (first of equal keys), `let ... else`, `extend`, `Vec == slice` | Slice 5, Steps 8-9 |
+| a type alias as a name for a table (`Vec<Vec<usize>>`), `match` is a keyword | Slice 5, Step 1 |
+| struct literals in a `const`, `vec![Vec::new(); n]`, array to slice, `flatten`, `==` on `Vec`s, `contains` | Slice 5, Step 2 |
+| a slice of part of an array (`&g[..2]`), a private function that only tests call is "never used" | Slice 5, Step 3 |
+| `?` on an `Option`, `todo!` with a message | Slice 5, Step 4 |
+| `min_by_key` (first of equal keys) | Slice 5, Step 5 |
+| item type of `vec![]` from later use, recursion with `&mut` parameters, reborrowing, no generators, a closure cannot call itself | Slice 5, Step 6 |
+| `impl Fn` parameters, `Fn`/`FnMut`/`FnOnce`, `copied` on an iterator, a closure inside a closure, `extend`, `Vec == slice`, `bool::then_some` | Slice 5, Step 7 |
+| `==` on `Option`s, `for x in [a, b]`, `chain`, `match` on a tuple, or-patterns (`\|`) and `_` | Slice 5, Step 8 |
+| `unwrap_or_default` | Slice 5, Step 10 |

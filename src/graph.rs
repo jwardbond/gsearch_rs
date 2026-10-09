@@ -76,6 +76,10 @@ impl Graph {
         self.coords[i]
     }
 
+    pub fn coords(&self) -> &[Point] {
+        &self.coords
+    }
+
     pub fn index_of(&self, id: NodeId) -> Option<usize> {
         self.index_of.get(&id).copied()
     }
