@@ -29,6 +29,8 @@ pub fn get_candidate_matches(
 
     let matches = annulus_matches(q_coords, g_coords, q_anchor, g_anchor, tol)?;
 
+    let alignment_node = pick_alignment_node(q_coords, q_anchor);
+
     todo!()
 }
 
@@ -70,8 +72,55 @@ fn annulus_matches(
     Some(matches)
 }
 
-fn pick_alignment_node(matches: &Matches, q_anchor: usize) -> usize {
-    let candidates = &matches[q_anchor];
+/// Get the index of the node in q that is farthest from the reference node.
+///
+/// This helps make the triangulation areas smaller => less candidates.
+fn pick_alignment_node(q: &[Point], q_ref: usize) -> usize {
+    let ref_p = q[q_ref];
+    let mut max_idx = if q_ref == 0 { 1 } else { 0 };
+    let mut max_dist = q[max_idx].dist(ref_p);
+
+    for (i, p) in q.iter().enumerate() {
+        if i == q_ref {
+            continue;
+        }
+        let dist = p.dist(ref_p);
+        if dist > max_dist {
+            max_dist = dist;
+            max_idx = i;
+        }
+    }
+
+    max_idx
+}
+
+/// Iterates through matches and generates every possible injective pose
+///
+/// Backtracking alg: for each node in Q, try each of its matches in G.
+/// If a match is already used, skip it. If we reach the end of Q, we have a valid pose.
+fn generate_candidates(matches: &Matches) -> Vec<Pose> {
+    let mut found = Vec::new();
+    let mut pose = Vec::with_capacity(matches.len());
+    extend_poses(matches, &mut pose, &mut found);
+    found
+}
+
+/// Add to `found` every pose that starts with `pose`.
+fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>) {
+    let row = pose.len();
+
+    // If all nodes in q have been matched, return
+    if row == matches.len() {
+        found.push(pose.clone());
+        return;
+    }
+
+    // o.w. pick a node in the row and recurse
+    for &j in &matches[row] {
+        pose.push(j);
+        extend_poses(matches, pose, found);
+        pose.pop();
+    }
 }
 
 #[cfg(test)]
@@ -199,11 +248,9 @@ mod tests {
     }
 
     #[test]
-    fn alignment_node_is_never_the_anchor() {
-        // the anchor (row 1) has the fewest matches, but it cannot align with itself
-        let matches = vec![vec![1, 2, 3], vec![0], vec![1, 2]];
-
-        assert_eq!(pick_alignment_node(&matches, 1), 2);
+    fn pick_alignment_node_finds_furthest_node() {
+        // Node index 2 is farthest away
+        assert_eq!(pick_alignment_node(&Q, 1), 2);
     }
     #[test]
     fn single_node_query_has_no_pose() {
@@ -213,5 +260,28 @@ mod tests {
         let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
         assert!(poses.is_none());
+    }
+
+    #[test]
+    fn generate_candidates_finds_only_available_assignment() {
+        let matches = vec![vec![0], vec![1]];
+
+        assert_eq!(generate_candidates(&matches), vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn generate_candidates_finds_all_permutations() {
+        let matches = vec![vec![0, 1], vec![0, 1]];
+
+        // both one-to-one assignments, and nothing else
+        assert_eq!(generate_candidates(&matches), vec![vec![0, 1], vec![1, 0]]);
+    }
+
+    #[test]
+    fn generate_candidates_is_injective() {
+        // both rows can only use column 0
+        let matches = vec![vec![0], vec![0]];
+
+        assert!(generate_candidates(&matches).is_empty());
     }
 }
