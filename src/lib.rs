@@ -1,4 +1,4 @@
-pub mod align_nodes;
+pub mod match_generation;
 pub mod geometry;
 pub mod graph;
 pub mod io;
