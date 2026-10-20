@@ -11,9 +11,9 @@ use serde::Serialize;
 use gsearch::alignment::Alignment;
 use gsearch::graph::Graph;
 use gsearch::io::read_graph_file;
+use gsearch::path_scoring;
 use gsearch::search::{DEFAULT_WEIGHT, SearchParams, run_gsearch};
 use gsearch::spatial_index::SpatialIndex;
-use gsearch::{path_scoring, procrustes};
 
 /// Search a graph for the places that match a query shape.
 #[derive(Parser)]
