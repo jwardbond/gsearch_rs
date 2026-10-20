@@ -1,11 +1,11 @@
 # Slice 5: Node matching
 
 **Goal.** Port `align_nodes.py`. `get_candidate_matches` takes the query `Q` and a crop of `G`,
-with the anchor of each at position `0`. It returns every **pose**: a way to give each node of
+with the anchor of each at position `0`. It returns every **mapping**: a way to give each node of
 `Q` its own node of the crop, such that the distances to the anchors agree within `tol`. Slices
-6 and 7 align and score each pose.
+6 and 7 align and score each mapping.
 
-**Outcome.** `cargo test align` reports `31 passed`, and `cargo run` finds the poses around
+**Outcome.** `cargo test align` reports `31 passed`, and `cargo run` finds the mappings around
 every node of a road graph and says how long it took.
 
 **New ideas.** A table of matches as `Vec<Vec<usize>>`, in place of a boolean mask; `flatten`;
@@ -25,13 +25,13 @@ Notes about your files:
   this slice replaces the whole file, so you do not need to do Slice 4, Step 13 first.
 - Steps 1 to 3 are done, and most of Step 4. This version of the slice follows your return
   types: `annulus_matches` returns `Option<Matches>`, and `get_candidate_matches` returns
-  `Option<Vec<Pose>>`. It also uses your names: `within_tol`, `q_coords`, `g_coords`, and
+  `Option<Vec<Mapping>>`. It also uses your names: `within_tol`, `q_coords`, `g_coords`, and
   `matches` for the anchor table.
 - `use crate::io::NodeId;` and `use crate::test_fixtures::file;` are at the top of your file.
   Only the tests use them, and `test_fixtures` exists only in a test build (`#[cfg(test)]` in
   `lib.rs`). So `cargo build` fails with `E0432: unresolved import crate::test_fixtures`. Step 4
   moves them into `mod tests`.
-- Your two Step 4 tests call `poses.is_empty()`, but `poses` is now an `Option`, so they do not
+- Your two Step 4 tests call `mappings.is_empty()`, but `mappings` is now an `Option`, so they do not
   compile. Step 4 changes them to `is_none()`.
 - Your file is ahead of Step 3. Do the two fixes above first (Step 4: move the two `use` lines,
   and change `is_empty()` to `is_none()`). Then the file builds, and you can continue at the end
@@ -54,7 +54,7 @@ Notes about your files:
    the `Q` node to its anchor and the distance of the `G` node to its anchor differ by at most
    `tol`.
 2. **Early exits.** If `Q` has more nodes than `G`, or a row of the mask is all `False`, there
-   is no pose.
+   is no mapping.
 3. **Alignment node.** Take the node of `Q` (not the anchor) with the fewest `True` cells in
    its row. On a tie, take the first one.
 4. **For each `G` node in the row of the alignment node:** make a second annulus mask around
@@ -63,7 +63,7 @@ Notes about your files:
    the left of its axis can match a node of `G` on the left of its axis in a rotation, and a
    node on the right in a reflection. A node on an axis goes into both masks.
 5. **Candidates.** For each of the two masks, list every **injective assignment**: one column
-   per row, with no column used twice. Each assignment is a pose.
+   per row, with no column used twice. Each assignment is a mapping.
 
 Steps 1 and 4 together are a **triangulation**. A G node that is right for Q node `i` must be
 on two rings: one around the anchor (step 1), and one around the alignment node (step 4). Two
@@ -78,7 +78,7 @@ rings cross at two points, one on each side of the axis. The handedness split pi
 | `_make_annulus_mask`, then `anchor_mask.any(axis=1).all()` | `annulus_matches`, with the test in `within_tol`. It returns `None` if a row is empty |
 | `counts[Q_anchor_idx] = np.inf; np.argmin(counts)` | `alignment_node(&matches, q_anchor)`, which returns an `Option<usize>` |
 | `anchor_mask & align_mask` | `filter_matches(&matches, closure)`: keep the pairs that are also on the second ring |
-| a pose `dict[int, int]` from Q id to G id | `type Pose = Vec<usize>`: `pose[i]` is the crop position for Q position `i` |
+| a mapping `dict[int, int]` from Q id to G id | `type Mapping = Vec<usize>`: `mapping[i]` is the crop position for Q position `i` |
 | `_cross_signs` returns `+1/-1/0` | `sides` returns `Vec<Side>`, with `side_of` from Slice 2 |
 | `_split_mask_by_handedness(mask, Q_arr, G_arr, 4 indices)` | `split_by_handedness(matches, q_sides, g_sides)` |
 | `_make_candidates(masks, Q_ids, G_ids)` | `candidates(matches)`, called once for each of the two tables |
@@ -93,28 +93,28 @@ in the order that the data goes through it:
 
 | Step | New part | What `get_candidate_matches` can do after the step |
 |---|---|---|
-| 4 | the size check, ring 1 | Return `None` (no pose) when Q is too large, or a node of Q has no match |
+| 4 | the size check, ring 1 | Return `None` (no mapping) when Q is too large, or a node of Q has no match |
 | 5 | `alignment_node` | Pick the second node of the triangulation |
 | 6 | `candidates` | (Not used yet. It is tested alone, on tables you write by hand.) |
-| 7 | the loop, ring 2, `filter_matches` | Return poses. Some of them are wrong: they mix the two sides of the axis |
-| 8 | `sides`, `split_by_handedness` | Return only correct poses |
+| 7 | the loop, ring 2, `filter_matches` | Return mappings. Some of them are wrong: they mix the two sides of the axis |
+| 8 | `sides`, `split_by_handedness` | Return only correct mappings |
 
 Until a part exists, the function ends in `todo!("...")`. The message says which part comes
 next.
 
-**`None` means "no pose" (your choice).** `get_candidate_matches` returns
-`Option<Vec<Pose>>`. `None` means that no pose is possible, and `Some(poses)` always holds at
-least one pose. There is only one form of "no pose", so a caller cannot treat two forms
+**`None` means "no mapping" (your choice).** `get_candidate_matches` returns
+`Option<Vec<Mapping>>`. `None` means that no mapping is possible, and `Some(mappings)` always holds at
+least one mapping. There is only one form of "no mapping", so a caller cannot treat two forms
 differently by mistake. Python returns `[]`.
 
-The function can find "no pose" in four places: Q is larger than the crop, a node of Q has no
+The function can find "no mapping" in four places: Q is larger than the crop, a node of Q has no
 match on ring 1, Q has no alignment node, or the search runs and finds nothing. The first three
 are one `return None` or one `?` each. The last one is the final line of the function (Step 7).
 
 An empty `Vec` would work as well. Nothing in this project needs one choice more than the
 other. `Option` lets each early exit be one `?`.
 
-**A pose holds positions, not ids (decision D7).** Python returns `{Q id: G id}`, and
+**A mapping holds positions, not ids (decision D7).** Python returns `{Q id: G id}`, and
 `align_and_score` then calls `G_nodes.index(...)` to find each row again. A `Vec<usize>` with
 one crop position per Q position needs no lookup. Slice 6 indexes `crop.coords()` with it
 directly. The ids are only needed when the result is printed (Slice 8).
@@ -135,7 +135,7 @@ increasing order:
   already in the anchor lists. Python computes a full second table, and then `&`s it.
 - A test can write a table as `vec![vec![0], vec![1, 2]]`.
 
-The columns stay in increasing order, as `np.flatnonzero` gives them, so the poses come out in
+The columns stay in increasing order, as `np.flatnonzero` gives them, so the mappings come out in
 the same order as in Python.
 
 **The split takes sides, not coordinates.** The handedness of a pair depends only on the side
@@ -145,7 +145,7 @@ Python tests of `_cross_signs` are the geometry tests of Slice 2, so this slice 
 them again.
 
 **One-node query.** With one node, `Q` has no alignment node. Python then uses the anchor as
-its own alignment node and returns poses from a degenerate axis. The Rust version returns
+its own alignment node and returns mappings from a degenerate axis. The Rust version returns
 `None`. This is a second planned difference from Python. A one-node query is not in the data.
 
 ### The tests
@@ -164,11 +164,11 @@ The Python tests are in `tests/test_align_nodes.py`.
 | `test_empty_Q_arr_raises`, `test_empty_G_arr_raises` | Not ported. A reference index into an empty slice is a bug, and it panics (D3). A graph from a file or a crop always has a node |
 | (none) | `annulus_matches_is_none_if_a_q_node_has_no_match`, for the new `None` case |
 | (none) | 4 tests on `alignment_node`. Python has no function for this, so it has no test |
-| `TestMakeCandidates` (7 tests) | 6 tests on `candidates`. `test_combines_every_mask_in_the_tuple` is covered by `finds_a_reflected_pose` |
+| `TestMakeCandidates` (7 tests) | 6 tests on `candidates`. `test_combines_every_mask_in_the_tuple` is covered by `finds_a_reflected_mapping` |
 | (none) | `filter_keeps_only_the_pairs_that_pass`, for the new helper |
 | `TestCrossSigns` (5 tests) | The `side_of` tests of Slice 2, plus `sides_about_the_axis` |
 | `TestSplitMaskByHandedness` (5 tests) | 4 tests. `test_outputs_keep_input_shape` is covered by the others: they look at every row |
-| `TestGetCandidateMatches` (6 tests) | 5 tests, plus `single_node_query_has_no_pose`, `mixed_hands_are_not_a_pose` and `only_mixed_hands_gives_no_pose`. `test_returns_node_ids_not_indices` is not needed, because a pose holds positions |
+| `TestGetCandidateMatches` (6 tests) | 5 tests, plus `single_node_query_has_no_mapping`, `mixed_hands_are_not_a_mapping` and `only_mixed_hands_gives_no_mapping`. `test_returns_node_ids_not_indices` is not needed, because a mapping holds positions |
 
 ---
 
@@ -197,16 +197,16 @@ The Python tests are in `tests/test_align_nodes.py`.
   /// `matches[i]` lists the positions in G that node `i` of Q can match, in increasing order.
   pub type Matches = Vec<Vec<usize>>;
 
-  /// A candidate match: `pose[i]` is the position in G of the node matched to Q position `i`.
-  pub type Pose = Vec<usize>;
+  /// A candidate match: `mapping[i]` is the position in G of the node matched to Q position `i`.
+  pub type Mapping = Vec<usize>;
   ```
 
-  Both are type aliases (Slice 1, Step 3). `Matches`, `Pose` and their `Vec` types are the same
+  Both are type aliases (Slice 1, Step 3). `Matches`, `Mapping` and their `Vec` types are the same
   types, so every `Vec` method works on them. The alias only gives the type a name that says
-  what it holds. (`Matches` and `Vec<Pose>` are even the same type, `Vec<Vec<usize>>`. The
+  what it holds. (`Matches` and `Vec<Mapping>` are even the same type, `Vec<Vec<usize>>`. The
   names keep them apart for the reader, not for the compiler.)
 
-  Why "pose" and not "match"? `match` is a keyword in Rust, so it cannot be a variable name.
+  Why "mapping" and not "match"? `match` is a keyword in Rust, so it cannot be a variable name.
 
 - [x] Add `pub mod align_nodes;` to `src/lib.rs`, above `pub mod geometry;`.
 
@@ -238,7 +238,7 @@ The Python tests are in `tests/test_align_nodes.py`.
   the anchors and again with the alignment nodes. The Rust code calls it only with the anchors
   (Step 4), but the tests use other reference nodes too, as in Python.
 
-  It returns `None` when a node of Q has no match. Then no pose is possible, and there is no
+  It returns `None` when a node of Q has no match. Then no mapping is possible, and there is no
   reason to look at the other nodes. This is the Python `anchor_mask.any(axis=1).all()` check,
   done inside the function.
 
@@ -406,7 +406,7 @@ fn annulus_matches(
             }
         }
 
-        // a node of Q with no match: no pose is possible
+        // a node of Q with no match: no mapping is possible
         if matches[i].is_empty() {
             return None;
         }
@@ -470,15 +470,15 @@ already in your file.
   module, so it goes first:
 
   ```rust
-  /// Candidate poses that put `q_anchor` of Q on `g_anchor` of G. `None` if the search stops
-  /// before it starts: no pose is possible.
+  /// Candidate mappings that put `q_anchor` of Q on `g_anchor` of G. `None` if the search stops
+  /// before it starts: no mapping is possible.
   pub fn get_candidate_matches(
       q: &Graph,
       g: &Graph,
       q_anchor: usize,
       g_anchor: usize,
       tol: f64,
-  ) -> Option<Vec<Pose>> {
+  ) -> Option<Vec<Mapping>> {
       todo!()
   }
   ```
@@ -490,7 +490,7 @@ already in your file.
 
   ```rust
       // A 3-4-5 triangle. Its three distances are all different, so it has only one
-      // correct pose. The ids are not positions.
+      // correct mapping. The ids are not positions.
       const TRIANGLE: [(NodeId, f64, f64); 3] = [(10, 0.0, 0.0), (20, 3.0, 0.0), (30, 0.0, 4.0)];
 
       fn graph(nodes: &[(NodeId, f64, f64)]) -> Graph {
@@ -502,17 +502,17 @@ already in your file.
 
   ```rust
       #[test]
-      fn query_larger_than_target_has_no_pose() {
+      fn query_larger_than_target_has_no_mapping() {
           let q = graph(&TRIANGLE);
           let g = graph(&[(101, 100.0, 100.0), (102, 103.0, 100.0)]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-          assert!(poses.is_none());
+          assert!(mappings.is_none());
       }
 
       #[test]
-      fn query_node_with_no_match_gives_no_pose() {
+      fn query_node_with_no_match_gives_no_mapping() {
           // nothing in G is near distance 4 from the anchor
           let q = graph(&TRIANGLE);
           let g = graph(&[
@@ -521,9 +521,9 @@ already in your file.
               (103, 200.0, 100.0),
           ]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-          assert!(poses.is_none());
+          assert!(mappings.is_none());
       }
   ```
 
@@ -543,7 +543,7 @@ pub fn get_candidate_matches(
     q_anchor: usize,
     g_anchor: usize,
     tol: f64,
-) -> Option<Vec<Pose>> {
+) -> Option<Vec<Mapping>> {
     // every node of Q needs its own node of G
     if q.node_count() > g.node_count() {
         return None;
@@ -627,13 +627,13 @@ own function, so that the tests can check the choice directly.
       }
 
       #[test]
-      fn single_node_query_has_no_pose() {
+      fn single_node_query_has_no_mapping() {
           let q = graph(&[(10, 0.0, 0.0)]);
           let g = graph(&[(101, 100.0, 100.0)]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-          assert!(poses.is_none());
+          assert!(mappings.is_none());
       }
   ```
 
@@ -683,9 +683,9 @@ In `get_candidate_matches`, replace `todo!("pick the alignment node")` with:
 - [ ] Run `cargo test align`. Expected: `14 passed; 0 failed`. `cargo build` warns that
   `q_align` is not used. Step 7 uses it.
 
-### 6. `candidates`: from a table to poses
+### 6. `candidates`: from a table to mappings
 
-Step 5 of "What the Python code does". `candidates(matches)` lists every pose that one table
+Step 5 of "What the Python code does". `candidates(matches)` lists every mapping that one table
 allows: one column from each row, and no column twice. It is the last part of the pipeline, but
 it does not need the parts before it. Its tests use small tables that you write by hand. Step 7
 connects it.
@@ -693,15 +693,15 @@ connects it.
 - [ ] Add a stub after `alignment_node`:
 
   ```rust
-  /// Every pose that `matches` allows: one column from each row, with no column used twice.
-  fn candidates(matches: &Matches) -> Vec<Pose> {
+  /// Every mapping that `matches` allows: one column from each row, with no column used twice.
+  fn candidates(matches: &Matches) -> Vec<Mapping> {
       todo!()
   }
   ```
 
   It returns a `Vec`, not an `Option`. The tables that it gets come from the second ring and the
-  handedness split (Steps 7 and 8), and those can make a row empty. An empty row gives no pose,
-  and that is an empty `Vec`. `get_candidate_matches` collects the poses of many tables, so an
+  handedness split (Steps 7 and 8), and those can make a row empty. An empty row gives no mapping,
+  and that is an empty `Vec`. `get_candidate_matches` collects the mappings of many tables, so an
   empty `Vec` is the useful answer here.
 
 - [ ] Add six tests at the end of `mod tests`:
@@ -746,7 +746,7 @@ connects it.
       }
 
       #[test]
-      fn one_row_gives_one_pose_per_match() {
+      fn one_row_gives_one_mapping_per_match() {
           let matches = vec![vec![0, 2]];
 
           assert_eq!(candidates(&matches), vec![vec![0], vec![2]]);
@@ -757,85 +757,85 @@ connects it.
      it from the next row, `vec![0]`, and from the call `candidates(&matches)`, which needs a
      `&Vec<Vec<usize>>`. So the integer `0` is a `usize` too.
   2. The Python tests compare ids, and turn the result into a `set` when the order is not fixed.
-     Here a pose holds positions, and the order is fixed: the search tries the columns of each
+     Here a mapping holds positions, and the order is fixed: the search tries the columns of each
      row in list order. So the tests compare the `Vec` directly.
 
 - [ ] Run `cargo test align`. Expected: `14 passed; 6 failed`.
 
-**How the search works.** `pose` is a list that the search fills from left to right: `pose[0]`
-is the G node for Q node 0, `pose[1]` for Q node 1, and so on.
+**How the search works.** `mapping` is a list that the search fills from left to right: `mapping[0]`
+is the G node for Q node 0, `mapping[1]` for Q node 1, and so on.
 
-1. The next row to fill is `pose.len()`.
-2. Try each column of that row, one at a time: push it onto `pose`, fill the remaining rows
+1. The next row to fill is `mapping.len()`.
+2. Try each column of that row, one at a time: push it onto `mapping`, fill the remaining rows
    (the function calls itself), then pop it, so that the next column can take its place.
-3. When `pose` has one value for each row, the pose is complete. Copy it into `found`.
+3. When `mapping` has one value for each row, the mapping is complete. Copy it into `found`.
 
 For `[[0, 1], [0, 1]]`, with the "no column twice" check (each indent is one more call):
 
 ```text
-pose = []          row 0: try 0, then 1
-  pose = [0]       row 1: 0 is used, skip. try 1
-    pose = [0, 1]  complete -> found = [[0, 1]]
-  pose = [1]       row 1: try 0
-    pose = [1, 0]  complete -> found = [[0, 1], [1, 0]]
+mapping = []          row 0: try 0, then 1
+  mapping = [0]       row 1: 0 is used, skip. try 1
+    mapping = [0, 1]  complete -> found = [[0, 1]]
+  mapping = [1]       row 1: try 0
+    mapping = [1, 0]  complete -> found = [[0, 1], [1, 0]]
                    1 is used, skip
 ```
 
 **The Python version is a recursive generator.** `backtrack(i)` does the same, and `yield`s
-each complete pose. Rust (in the stable language) has no generators, and a closure cannot call
+each complete mapping. Rust (in the stable language) has no generators, and a closure cannot call
 itself, because a closure has no name that its own body can use. So the Rust version is a
-normal function that calls itself, and it pushes each complete pose into a `Vec` that the
+normal function that calls itself, and it pushes each complete mapping into a `Vec` that the
 caller gives it.
 
 **Try first.** Write a second function:
 
 ```rust
-/// Add to `found` every pose that starts with `pose`.
-fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>)
+/// Add to `found` every mapping that starts with `mapping`.
+fn extend_mappings(matches: &Matches, mapping: &mut Mapping, found: &mut Vec<Mapping>)
 ```
 
-`candidates` makes an empty `pose` and an empty `found`, calls `extend_poses`, and returns
-`found`. `extend_poses` is the Python `backtrack`. It needs no `i`, because the next row is
-`pose.len()`.
+`candidates` makes an empty `mapping` and an empty `found`, calls `extend_mappings`, and returns
+`found`. `extend_mappings` is the Python `backtrack`. It needs no `i`, because the next row is
+`mapping.len()`.
 
 **Suggested code.** Start without the "no column twice" check, and let the tests show why it is
 needed.
 
 ```rust
-fn candidates(matches: &Matches) -> Vec<Pose> {
+fn candidates(matches: &Matches) -> Vec<Mapping> {
     let mut found = Vec::new();
-    let mut pose = Vec::with_capacity(matches.len());
-    extend_poses(matches, &mut pose, &mut found);
+    let mut mapping = Vec::with_capacity(matches.len());
+    extend_mappings(matches, &mut mapping, &mut found);
     found
 }
 
-/// Add to `found` every pose that starts with `pose`.
-fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>) {
-    let row = pose.len();
+/// Add to `found` every mapping that starts with `mapping`.
+fn extend_mappings(matches: &Matches, mapping: &mut Mapping, found: &mut Vec<Mapping>) {
+    let row = mapping.len();
     if row == matches.len() {
-        found.push(pose.clone());
+        found.push(mapping.clone());
         return;
     }
 
     for &j in &matches[row] {
-        pose.push(j);
-        extend_poses(matches, pose, found);
-        pose.pop();
+        mapping.push(j);
+        extend_mappings(matches, mapping, found);
+        mapping.pop();
     }
 }
 ```
 
 **Explanation.**
 
-1. `candidates` owns `found` and `pose`, and lends both to `extend_poses` with `&mut` (Slice 3,
-   Step 3). There is one `pose` for the whole search. Each call pushes a column, lets the
-   deeper calls work, and pops it again. So when a call returns, `pose` is the same as when the
+1. `candidates` owns `found` and `mapping`, and lends both to `extend_mappings` with `&mut` (Slice 3,
+   Step 3). There is one `mapping` for the whole search. Each call pushes a column, lets the
+   deeper calls work, and pops it again. So when a call returns, `mapping` is the same as when the
    call started. This is the `combo.append` / `combo.pop()` of the Python code.
-2. Inside `extend_poses`, `pose` is already a `&mut Pose`. To pass it down, you write `pose`,
-   not `&mut pose`. Rust lends it on for the length of the call (a **reborrow**), and `pose` is
-   usable again after the call returns. So the `pose.pop()` on the next line is allowed.
-3. `found.push(pose.clone())` stores a copy. `pose` itself keeps changing, so `found` cannot
-   hold `pose`. In Python, `tuple(combo)` makes the copy for the same reason.
+2. Inside `extend_mappings`, `mapping` is already a `&mut Mapping`. To pass it down, you write `mapping`,
+   not `&mut mapping`. Rust lends it on for the length of the call (a **reborrow**), and `mapping` is
+   usable again after the call returns. So the `mapping.pop()` on the next line is allowed.
+3. `found.push(mapping.clone())` stores a copy. `mapping` itself keeps changing, so `found` cannot
+   hold `mapping`. In Python, `tuple(combo)` makes the copy for the same reason.
 4. `for &j in &matches[row]`: `&matches[row]` borrows the row, the loop gives `&usize` items,
    and `&j` copies each one out.
 
@@ -852,25 +852,25 @@ fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>) {
   column 0 twice. `a_column_is_not_used_twice` and `more_columns_than_rows` fail for the same
   reason.
 
-- [ ] Add the check at the top of the `for` loop in `extend_poses`:
+- [ ] Add the check at the top of the `for` loop in `extend_mappings`:
 
   ```rust
       for &j in &matches[row] {
-          if pose.contains(&j) {
+          if mapping.contains(&j) {
               continue;
           }
-          pose.push(j);
-          extend_poses(matches, pose, found);
-          pose.pop();
+          mapping.push(j);
+          extend_mappings(matches, mapping, found);
+          mapping.pop();
       }
   ```
 
-  Python keeps a separate `used` set for this. Here `pose` has at most 20 values (one per query
+  Python keeps a separate `used` set for this. Here `mapping` has at most 20 values (one per query
   node), and a scan of 20 numbers is faster than a hash lookup. It also means there is no second
-  structure to keep in step with `pose`.
+  structure to keep in step with `mapping`.
 
   Because the check is at each level, a branch that uses a column twice stops at once. It does
-  not build the rest of the pose first. This is the point of the backtracking version, as the
+  not build the rest of the mapping first. This is the point of the backtracking version, as the
   Python docstring says.
 
 - [ ] Add an early exit at the top of `candidates`:
@@ -888,7 +888,7 @@ fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>) {
 - [ ] Run `cargo test align`. Expected: `20 passed; 0 failed`. `cargo build` warns that
   `candidates` is never used. Step 7 uses it.
 
-### 7. The second ring: the first poses
+### 7. The second ring: the first mappings
 
 Step 4 of "What the Python code does", without the handedness split. For each G node that the
 alignment node can match, keep only the anchor matches that are also on the second ring, around
@@ -898,7 +898,7 @@ The second ring only removes pairs from the anchor table. So it is a filter: "ke
 `(i, j)` if this test is true". The handedness split in Step 8 is a filter too, with a
 different test. So one function does both, and takes the test as a closure.
 
-- [ ] Add a stub after `candidates` and `extend_poses`:
+- [ ] Add a stub after `candidates` and `extend_mappings`:
 
   ```rust
   /// Keep the pair (Q node `i`, G node `j`) of `matches` only when `keep(i, j)` is true.
@@ -923,17 +923,17 @@ different test. So one function does both, and takes the test as a closure.
 - [ ] Add two helpers and four tests at the end of `mod tests`:
 
   ```rust
-      /// The ids of a pose, as (Q id, G id) pairs.
-      fn id_pairs(q: &Graph, g: &Graph, pose: &Pose) -> Vec<(NodeId, NodeId)> {
-          pose.iter()
+      /// The ids of a mapping, as (Q id, G id) pairs.
+      fn id_pairs(q: &Graph, g: &Graph, mapping: &Mapping) -> Vec<(NodeId, NodeId)> {
+          mapping.iter()
               .enumerate()
               .map(|(i, &j)| (q.id(i), g.id(j)))
               .collect()
       }
 
-      /// True if one of `poses` maps the Q ids to the G ids as in `expected`.
-      fn has_pose(q: &Graph, g: &Graph, poses: &[Pose], expected: &[(NodeId, NodeId)]) -> bool {
-          poses.iter().any(|pose| id_pairs(q, g, pose) == expected)
+      /// True if one of `mappings` maps the Q ids to the G ids as in `expected`.
+      fn has_mapping(q: &Graph, g: &Graph, mappings: &[Mapping], expected: &[(NodeId, NodeId)]) -> bool {
+          mappings.iter().any(|mapping| id_pairs(q, g, mapping) == expected)
       }
 
       #[test]
@@ -947,7 +947,7 @@ different test. So one function does both, and takes the test as a closure.
       }
 
       #[test]
-      fn finds_the_true_pose() {
+      fn finds_the_true_mapping() {
           // the triangle, moved far away, and one more node that fits nowhere
           let q = graph(&TRIANGLE);
           let g = graph(&[
@@ -957,46 +957,46 @@ different test. So one function does both, and takes the test as a closure.
               (104, 500.0, 500.0),
           ]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
 
-          assert!(has_pose(&q, &g, &poses, &[(10, 101), (20, 102), (30, 103)]));
-          // node 104 (position 3) is in no pose
-          assert!(poses.iter().all(|pose| !pose.contains(&3)));
+          assert!(has_mapping(&q, &g, &mappings, &[(10, 101), (20, 102), (30, 103)]));
+          // node 104 (position 3) is in no mapping
+          assert!(mappings.iter().all(|mapping| !mapping.contains(&3)));
       }
 
       #[test]
-      fn finds_a_rotated_pose() {
+      fn finds_a_rotated_mapping() {
           // the triangle turned by 90 degrees: (x, y) -> (-y, x)
           let q = graph(&TRIANGLE);
           let g = graph(&[(101, 100.0, 100.0), (102, 100.0, 103.0), (103, 96.0, 100.0)]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
 
-          assert!(has_pose(&q, &g, &poses, &[(10, 101), (20, 102), (30, 103)]));
+          assert!(has_mapping(&q, &g, &mappings, &[(10, 101), (20, 102), (30, 103)]));
       }
 
       #[test]
-      fn finds_a_reflected_pose() {
+      fn finds_a_reflected_mapping() {
           // the triangle mirrored: (x, y) -> (x, -y)
           let q = graph(&TRIANGLE);
           let g = graph(&[(101, 100.0, 100.0), (102, 103.0, 100.0), (103, 100.0, 96.0)]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5).unwrap();
 
-          assert!(has_pose(&q, &g, &poses, &[(10, 101), (20, 102), (30, 103)]));
+          assert!(has_mapping(&q, &g, &mappings, &[(10, 101), (20, 102), (30, 103)]));
       }
   ```
 
   1. `filter_matches(&matches, |i, j| j > i)`: the closure is the `keep` argument. The
      compiler gets the types of `i` and `j` from `impl Fn(usize, usize) -> bool`, so the
      closure needs no type hints.
-  2. `id_pairs` turns a pose back into ids, so the tests can state the expected pose with the
-     same ids as the Python tests. Position `i` of the pose is Q position `i`, so `enumerate`
+  2. `id_pairs` turns a mapping back into ids, so the tests can state the expected mapping with the
+     same ids as the Python tests. Position `i` of the mapping is Q position `i`, so `enumerate`
      gives the Q side of each pair.
   3. `id_pairs(...) == expected` compares a `Vec<(NodeId, NodeId)>` with a
      `&[(NodeId, NodeId)]`. Rust allows `==` between a `Vec` and a slice of the same item
      type.
-  4. `has_pose` takes `&[Pose]`, and `&poses` is a `&Vec<Pose>`. Rust turns one into the other
+  4. `has_mapping` takes `&[Mapping]`, and `&mappings` is a `&Vec<Mapping>`. Rust turns one into the other
      by itself, as with an array (Step 2).
 
 - [ ] Run `cargo test align`. Expected: `20 passed; 4 failed`. The three `finds_` tests fail
@@ -1007,7 +1007,7 @@ and a `filter` inside each row. Then replace the `todo!` in `get_candidate_match
 over the row of the alignment node in `matches`. For each `g_align` in it, call
 `filter_matches` on `matches` with a closure that calls `within_tol` on two distances: Q node
 `i` to `q_coords[q_align]`, and G node `j` to `g_coords[g_align]`. Give the result to
-`candidates`, and collect every pose. Return `None` if there is no pose, and `Some(poses)` if
+`candidates`, and collect every mapping. Return `None` if there is no mapping, and `Some(mappings)` if
 there is.
 
 **Suggested code.**
@@ -1025,7 +1025,7 @@ fn filter_matches(matches: &Matches, keep: impl Fn(usize, usize) -> bool) -> Mat
 In `get_candidate_matches`, replace `todo!("triangulate with the alignment node")` with:
 
 ```rust
-    let mut poses = Vec::new();
+    let mut mappings = Vec::new();
     for &g_align in &matches[q_align] {
         // ring 2: the anchor matches that are also at the right distance from the alignment node
         let both = filter_matches(&matches, |i, j| {
@@ -1036,9 +1036,9 @@ In `get_candidate_matches`, replace `todo!("triangulate with the alignment node"
             )
         });
 
-        poses.extend(candidates(&both));
+        mappings.extend(candidates(&both));
     }
-    (!poses.is_empty()).then_some(poses)
+    (!mappings.is_empty()).then_some(mappings)
 ```
 
 **Explanation.**
@@ -1055,27 +1055,27 @@ In `get_candidate_matches`, replace `todo!("triangulate with the alignment node"
    computes a distance only for the pairs that are in `matches`. Python computes the full
    second mask, for every pair, and then drops most of it with `&`. The rule "within `tol`,
    inclusive" is in `within_tol`, so the two rings cannot use different rules.
-5. `poses.extend(...)` appends every item of another collection, like `list.extend`.
-6. `(!poses.is_empty()).then_some(poses)` is the last expression, so it is the return value
+5. `mappings.extend(...)` appends every item of another collection, like `list.extend`.
+6. `(!mappings.is_empty()).then_some(mappings)` is the last expression, so it is the return value
    (Slice 1, Step 9). `then_some` is a method on `bool`: `true.then_some(x)` is `Some(x)`, and
    `false.then_some(x)` is `None`. So an empty search gives `None`, the same as an early exit
-   (see "The design"). In Python, it is `poses if poses else None`.
+   (see "The design"). In Python, it is `mappings if mappings else None`.
 
 - [ ] Run `cargo test align`. Expected: `24 passed; 0 failed`.
 
 All the tests pass, but the function is not correct yet. Two rings cross at **two** points, one
 on each side of the axis from the anchor to the alignment node. So a node of Q can match its
-mirror image in G. With a triangle, all of a pose is mirrored together, and that is a correct
+mirror image in G. With a triangle, all of a mapping is mirrored together, and that is a correct
 reflection. With four nodes, one node can be mirrored and another not. No rotation or
 reflection does that. Step 8 shows it with a test, and fixes it.
 
-### 8. Handedness: the correct poses
+### 8. Handedness: the correct mappings
 
 - [ ] Add a test at the end of `mod tests`:
 
   ```rust
       #[test]
-      fn mixed_hands_are_not_a_pose() {
+      fn mixed_hands_are_not_a_mapping() {
           // A (30) and B (40) are both on the left of the axis from 10 to 20.
           // G has the same shape, plus 105: the mirror image of B (104) about the axis.
           let q = graph(&[(10, 0.0, 0.0), (20, 4.0, 0.0), (30, 1.0, 1.0), (40, 3.0, 1.0)]);
@@ -1087,14 +1087,14 @@ reflection does that. Step 8 shows it with a test, and fixes it.
               (105, 103.0, 99.0),
           ]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
           // [0, 1, 2, 4] would put A on the left and B on the right
-          assert_eq!(poses, Some(vec![vec![0, 1, 2, 3]]));
+          assert_eq!(mappings, Some(vec![vec![0, 1, 2, 3]]));
       }
 
       #[test]
-      fn only_mixed_hands_gives_no_pose() {
+      fn only_mixed_hands_gives_no_mapping() {
           // the same Q, and G with A on the left but B only on the right
           let q = graph(&[(10, 0.0, 0.0), (20, 4.0, 0.0), (30, 1.0, 1.0), (40, 3.0, 1.0)]);
           let g = graph(&[
@@ -1104,10 +1104,10 @@ reflection does that. Step 8 shows it with a test, and fixes it.
               (104, 103.0, 99.0),
           ]);
 
-          let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+          let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
           // the search runs, and finds nothing: that is None too
-          assert_eq!(poses, None);
+          assert_eq!(mappings, None);
       }
   ```
 
@@ -1116,11 +1116,11 @@ reflection does that. Step 8 shows it with a test, and fixes it.
 - [ ] Run `cargo test align`. Expected: `24 passed; 2 failed`:
 
   ```text
-  ---- align_nodes::tests::mixed_hands_are_not_a_pose stdout ----
+  ---- align_nodes::tests::mixed_hands_are_not_a_mapping stdout ----
   assertion `left == right` failed
     left: Some([[0, 1, 2, 3], [0, 1, 2, 4]])
    right: Some([[0, 1, 2, 3]])
-  ---- align_nodes::tests::only_mixed_hands_gives_no_pose stdout ----
+  ---- align_nodes::tests::only_mixed_hands_gives_no_mapping stdout ----
   assertion `left == right` failed
     left: Some([[0, 1, 2, 3]])
    right: None
@@ -1128,7 +1128,7 @@ reflection does that. Step 8 shows it with a test, and fixes it.
 
   In the first test, node `105` is on both rings of B: at the same distance from the anchor and
   from the alignment node as `104`. Only the side of the axis is different. The second test has
-  only the mirror image of B, so its one pose is wrong.
+  only the mirror image of B, so its one mapping is wrong.
 
 - [ ] Change the first line of `src/align_nodes.rs` to:
 
@@ -1316,7 +1316,7 @@ fn split_by_handedness(
   which passes both `>= 0` and `<= 0`. With `q == g`, an `On` node only matches another `On`
   node, so the pair of an `On` node and a `Left` node is in neither table.
   `the_tables_cover_the_input_and_overlap_only_on_the_axis` fails for the same reason.
-  `mixed_hands_are_not_a_pose` and `only_mixed_hands_gives_no_pose` still fail, because
+  `mixed_hands_are_not_a_mapping` and `only_mixed_hands_gives_no_mapping` still fail, because
   `get_candidate_matches` does not call the split yet.
 
 - [ ] Replace `same_hand`:
@@ -1339,7 +1339,7 @@ fn split_by_handedness(
 - [ ] Run `cargo test align`. Expected: `29 passed; 2 failed`.
 
 **Connect the split.** In `get_candidate_matches`, compute the sides of Q once, after the
-alignment node, and the sides of G inside the loop. Split `both`, and get the poses of each
+alignment node, and the sides of G inside the loop. Split `both`, and get the mappings of each
 table.
 
 **Suggested code.** The full function:
@@ -1351,7 +1351,7 @@ pub fn get_candidate_matches(
     q_anchor: usize,
     g_anchor: usize,
     tol: f64,
-) -> Option<Vec<Pose>> {
+) -> Option<Vec<Mapping>> {
     // every node of Q needs its own node of G
     if q.node_count() > g.node_count() {
         return None;
@@ -1366,7 +1366,7 @@ pub fn get_candidate_matches(
     let q_align = alignment_node(&matches, q_anchor)?;
     let q_sides = sides(q_coords, q_anchor, q_align);
 
-    let mut poses = Vec::new();
+    let mut mappings = Vec::new();
     for &g_align in &matches[q_align] {
         // ring 2: the anchor matches that are also at the right distance from the alignment node
         let both = filter_matches(&matches, |i, j| {
@@ -1381,10 +1381,10 @@ pub fn get_candidate_matches(
         let g_sides = sides(g_coords, g_anchor, g_align);
         let (rotation, reflection) = split_by_handedness(&both, &q_sides, &g_sides);
 
-        poses.extend(candidates(&rotation));
-        poses.extend(candidates(&reflection));
+        mappings.extend(candidates(&rotation));
+        mappings.extend(candidates(&reflection));
     }
-    (!poses.is_empty()).then_some(poses)
+    (!mappings.is_empty()).then_some(mappings)
 }
 ```
 
@@ -1392,14 +1392,14 @@ pub fn get_candidate_matches(
 
 1. `q_sides` is computed once, before the loop. The axis of `Q` does not change. The axis of
    `G` changes with `g_align`, so `g_sides` is computed inside the loop.
-2. Rotation poses come before reflection poses for each `g_align`, as in Python. If a pose is in
+2. Rotation mappings come before reflection mappings for each `g_align`, as in Python. If a mapping is in
    both tables (every node on the axis), it is in the list twice, as in Python.
-3. In `mixed_hands_are_not_a_pose`, the rotation table keeps `104` for B and drops `105`. The
+3. In `mixed_hands_are_not_a_mapping`, the rotation table keeps `104` for B and drops `105`. The
    reflection table keeps `105` for B, but it has no match for A (A is on the left in Q, and G
-   has no node on the right at A's distances). An empty row gives no pose. So the only pose is
+   has no node on the right at A's distances). An empty row gives no mapping. So the only mapping is
    `[0, 1, 2, 3]`.
-4. In `only_mixed_hands_gives_no_pose`, the rotation table has no match for B, and the
-   reflection table has no match for A. Both give no pose, so `poses` is empty, and the last
+4. In `only_mixed_hands_gives_no_mapping`, the rotation table has no match for B, and the
+   reflection table has no match for A. Both give no mapping, so `mappings` is empty, and the last
    line gives `None`.
 
 - [ ] Run `cargo test align`. Expected: `31 passed; 0 failed`.
@@ -1424,11 +1424,11 @@ pub fn get_candidate_matches(
           println!("anchor: {matches:?}");
           println!("rotation: {rotation:?}");
           println!("reflection: {reflection:?}");
-          println!("poses: {:?}", get_candidate_matches(&q, &g, 0, 0, 0.5));
+          println!("mappings: {:?}", get_candidate_matches(&q, &g, 0, 0, 0.5));
       }
   ```
 
-  This is the mirrored triangle of `finds_a_reflected_pose`. For this graph, the second ring
+  This is the mirrored triangle of `finds_a_reflected_mapping`. For this graph, the second ring
   keeps every anchor match, so the test splits the anchor table directly.
 
 - [ ] Run `cargo test look -- --nocapture` (Slice 4, Step 12). Expected:
@@ -1438,28 +1438,29 @@ pub fn get_candidate_matches(
   anchor: [[0], [1], [2]]
   rotation: [[0], [1], []]
   reflection: [[0], [1], [2]]
-  poses: Some([[0, 1, 2]])
+  mappings: Some([[0, 1, 2]])
   ```
 
   Node `30` of `Q` is on the left of its axis, and node `103` of `G` is on the right. So the
-  rotation table loses that pair, and its last row is empty: no rotation pose. The reflection
-  table keeps it, and gives the one pose `[0, 1, 2]`, which is `10 → 101, 20 → 102, 30 → 103`.
+  rotation table loses that pair, and its last row is empty: no rotation mapping. The reflection
+  table keeps it, and gives the one mapping `[0, 1, 2]`, which is `10 → 101, 20 → 102, 30 → 103`.
   The first two rows are in both tables, because those nodes are on the axis.
 
 - [ ] Delete the `look` test.
 
 ### 10. Use it from `main`
 
-The program crops `G` around every node, as in Slice 4, and now also finds the poses in each
+The program crops `G` around every node, as in Slice 4, and now also finds the mappings in each
 crop.
 
-**Read this before you run it.** The number of poses for one anchor can be very large. It is
+**Read this before you run it.** The number of mappings for one anchor can be very large. It is
 about the product of the row lengths of the table, so it grows very fast with the number of
-query nodes and with the crop size. Every pose is stored in a `Vec` before it is counted, so a
+query nodes and with the crop size. Every mapping is stored in a `Vec` before it is counted, so a
 large count uses a lot of memory. The Python code has the same behaviour (it also builds the
 full list). Run it first on `gr00049` (10 query nodes, crops of about 13 nodes). Keep Task
 Manager open, and stop the program with `Ctrl+C` if the memory use climbs. Do not run `gr00048`
-(19 query nodes, crops of about 100 nodes) or `gr00047` until Slice 9, which limits this.
+(19 query nodes, crops of about 100 nodes) or `gr00047`. Slice 8 shows how fast the number of mappings grows with the tolerance, and
+Slice 9 shows how to measure the cost.
 
 - [ ] Replace all of `src/main.rs`:
 
@@ -1503,20 +1504,20 @@ Manager open, and stop the program with `Ctrl+C` if the memory use climbs. Do no
 
       let start = Instant::now();
       let mut total = 0;
-      let mut anchors_with_a_pose = 0;
+      let mut anchors_with_a_mapping = 0;
       let mut most = 0;
       for anchor in 0..graph.node_count() {
           let crop = index.make_crop(anchor, radius);
-          let poses = get_candidate_matches(&query, &crop, 0, 0, TOL).unwrap_or_default();
-          total += poses.len();
-          if !poses.is_empty() {
-              anchors_with_a_pose += 1;
+          let mappings = get_candidate_matches(&query, &crop, 0, 0, TOL).unwrap_or_default();
+          total += mappings.len();
+          if !mappings.is_empty() {
+              anchors_with_a_mapping += 1;
           }
-          most = most.max(poses.len());
+          most = most.max(mappings.len());
       }
       eprintln!("match every node: {:.3} s", start.elapsed().as_secs_f64());
-      println!("anchors with a pose: {anchors_with_a_pose}");
-      println!("poses: {total} in total, {most} at most for one anchor");
+      println!("anchors with a mapping: {anchors_with_a_mapping}");
+      println!("mappings: {total} in total, {most} at most for one anchor");
       Ok(())
   }
   ```
@@ -1527,10 +1528,10 @@ Manager open, and stop the program with `Ctrl+C` if the memory use climbs. Do no
   2. `get_candidate_matches(&query, &crop, 0, 0, TOL)`: both anchors are position `0`. The crop
      radius is `Q_radius + tol`, and the match tolerance is `tol`, as in `run_gsearch`.
   3. `unwrap_or_default()` gives the value in a `Some`, or the **default** value of the type
-     for a `None`. The default `Vec` is empty. So "no pose" becomes an empty `Vec`, and the
-     loop can count it with the others. It is `poses or []` in Python.
-  4. `most.max(poses.len())` is the larger of two numbers. `max` is a method on `usize`.
-  5. `poses` is dropped at the end of each loop step, so only one anchor's poses are in memory
+     for a `None`. The default `Vec` is empty. So "no mapping" becomes an empty `Vec`, and the
+     loop can count it with the others. It is `mappings or []` in Python.
+  4. `most.max(mappings.len())` is the larger of two numbers. `max` is a method on `usize`.
+  5. `mappings` is dropped at the end of each loop step, so only one anchor's mappings are in memory
      at a time.
 
 - [ ] Run, in release mode (Slice 0, Step 7):
@@ -1544,7 +1545,7 @@ Manager open, and stop the program with `Ctrl+C` if the memory use climbs. Do no
 
 ### 11. Compare with Python
 
-The total number of poses does not depend on the order of the nodes in a crop, so it must be the
+The total number of mappings does not depend on the order of the nodes in a crop, so it must be the
 same in both languages. From the `gsearch` folder, with the same memory warning as Step 10:
 
 ```powershell
@@ -1561,21 +1562,21 @@ q_anchor = next(iter(q))
 radius = _get_radius(q, q_anchor) + 10.0
 index = SpatialGraphIndex(g)
 start = time.perf_counter()
-total = with_pose = most = 0
+total = with_mapping = most = 0
 for n in g:
     k = len(get_candidate_matches(q, index.make_crop(n, radius), q_anchor, n, 10.0))
     total += k
-    with_pose += k > 0
+    with_mapping += k > 0
     most = max(most, k)
 print(f"match every node: {time.perf_counter() - start:.3f} s")
-print(f"anchors with a pose: {with_pose}")
-print(f"poses: {total} in total, {most} at most for one anchor")
+print(f"anchors with a mapping: {with_mapping}")
+print(f"mappings: {total} in total, {most} at most for one anchor")
 '@
 $check | uv run python - ..\gsearch_rs\data\roads\queries\gr00049_q.json ..\gsearch_rs\data\roads\graphs\gr00049.json
 cd ..\gsearch_rs
 ```
 
-- [ ] Check that "anchors with a pose" and "poses" are the same as in Rust, and compare the
+- [ ] Check that "anchors with a mapping" and "mappings" are the same as in Rust, and compare the
   times. If the counts differ, tell Claude: the first place to look is a crop at the edge of the
   radius (Slice 4), and then a distance difference at exactly `tol`.
 
@@ -1587,20 +1588,21 @@ cd ..\gsearch_rs
 
   ```powershell
   git add -A
-  git commit -m "Slice 5: annulus matches, handedness split, candidate poses"
+  git commit -m "Slice 5: annulus matches, handedness split, candidate mappings"
   ```
 
 ---
 
 ## What comes next
 
-Slice 6 ports `_align_graph`: for one pose, the rotation (or reflection) and translation that
-put the query nodes closest to their matched crop nodes. In 2D this has a closed form, so no
-matrix crate is needed (decision D4). It reads `crop.coords()[pose[i]]` for each query node `i`.
+Slice 6 builds the `Transform` type for `_align_graph`: the rotation (or reflection) and
+translation that put the query nodes closest to their matched crop nodes. The fit itself is a
+placeholder that you write later (in 2D it has a closed form, so no matrix crate is needed,
+decision D4). It reads `crop.coords()[mapping[i]]` for each query node `i`.
 
-Slice 9 comes back to two things in this slice:
+Slice 9 lists two things in this slice as places to test with a profile:
 
 - `filter_matches` makes three new tables (`both`, `rotation`, `reflection`) for every
   alignment node. A search that tests each pair while it recurses would make none.
-- All poses are stored before they are used. A search that hands each pose to the next step as
-  it is found, and stops early on a bad pose, would use far less memory.
+- All mappings are stored before they are used. A search that hands each mapping to the next step as
+  it is found, and stops early on a bad mapping, would use far less memory.

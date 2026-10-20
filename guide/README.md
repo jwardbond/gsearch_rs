@@ -32,11 +32,11 @@ the remaining slices.
 | 2 | [Geometry](slice-02-geometry.md) | `Point`, `dist_to_segment`, `side_of`, with the ported pytest cases passing | written |
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
 | 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `Graph::connected_component`, `make_crop`; `cargo test spatial` shows `13 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
-| 5 | [Node matching](slice-05-align-nodes.md) | `get_candidate_matches`, built one part at a time: annulus matches (a list per query node, not a mask), alignment node, injective assignments, second ring, handedness split; `cargo test align` shows `31 passed`; poses around every node of `gr00049`, compared with Python | written |
-| 6 | Procrustes alignment | Closed-form 2D fit (rotation or reflection). Port `TestAlignGraph` | outline |
-| 7 | Edge routing | Dijkstra with a binary heap, `find_paths`, `align_and_score`. Port `TestFindPaths` | outline |
-| 8 | Pipeline and CLI | `run_gsearch`, `clap` arguments, JSON results, progress bar, logging. First full search on a real graph, compared with Python | outline |
-| 9 | Speed | Release profile, profiling, removing repeated allocations, timing on `gd`/`gg`/`go` graphs | outline |
+| 5 | [Node matching](slice-05-align-nodes.md) | `get_candidate_matches`, built one part at a time: annulus matches (a list per query node, not a mask), alignment node, injective assignments, second ring, handedness split; `cargo test align` shows `31 passed`; mappings around every node of `gr00049`, compared with Python | written |
+| 6 | [Rigid transform](slice-06-procrustes.md) | `Transform`, `apply`, `node_score` built in full; the Procrustes `fit` is a **placeholder** (identity) with 4 `#[ignore]` tests for you to make pass; `cargo test procrustes` shows `8 passed; 4 ignored` | written, with a stub |
+| 7 | [Path scoring](slice-07-path-scoring.md) | `Graph::edges`, `Alignment`, `assemble`, `combine`, `align_and_score` built in full; `find_paths` (corridor to the **line**, Dijkstra, area cost) is a **placeholder** with 9 `#[ignore]` tests; `cargo test alignment::` shows `8 passed; 3 ignored` | written, with a stub |
+| 8 | [Pipeline and CLI](slice-08-pipeline-cli.md) | `run_gsearch` with a `TopK`, a `get_candidate_anchors` seam, `clap` arguments, JSON output with `-o`, progress bar, logging; mapping counts equal Python's on six small graphs | written |
+| 9 | [Speed: how to profile](slice-09-profiling.md) | A profiling build profile, timing with `Measure-Command`, `samply`, `dhat` allocation counts, a list of places to test, compiler settings to try. No large-graph runs | written (method only) |
 | 10 | Parallel search | `rayon` over candidate anchors | outline |
 | 11 | Python bindings (optional) | `maturin` + `PyO3`, so notebooks call the Rust search | outline |
 
@@ -50,8 +50,9 @@ the remaining slices.
 | `networkx.Graph` | `graph.rs` (your own type, or `petgraph`) | 3 |
 | `spatial_graph_index.py` | `spatial_index.rs` | 4 |
 | `align_nodes.py` | `align_nodes.rs` | 5 |
-| `_align_graph` | `geometry.rs` or `procrustes.rs` | 6 |
-| `align_edges.py` | `align_edges.rs` | 7 |
+| `_align_graph` | `procrustes.rs` (with `Transform` and `node_score`) | 6 |
+| `align_edges.py` (`_find_paths`) | `path_scoring.rs` | 7 |
+| `align_edges.py` (`align_and_score`) | `alignment.rs` | 7 |
 | `core.py` | `search.rs` | 8 |
 | `log.py` | `log` + `env_logger` crates | 8 |
 | `visualization.py` | Not ported. Notebooks read the Rust JSON output | 8 |
@@ -102,11 +103,29 @@ are only used at the edges of the program. Inside, every node is a `usize` index
 replaces the many `list.index(...)` and `{n: i for i, n in enumerate(...)}` calls in the
 Python code.
 
-**D8. CLI with `clap` (decided, Slice 8).** The results are written as JSON, so the Python
-notebooks can draw them.
+**D8. CLI with `clap` (decided, written in Slice 8).** The results are written as JSON with
+`-o PATH`, so the Python notebooks can draw them. Without `-o` only a summary is printed. The
+library does not draw the progress bar: `run_gsearch` calls a closure after each anchor.
+`--log-file` is not ported (use `2> run.log`).
 
-**D9. Parallelism with `rayon` (decided, Slice 10).** Each candidate anchor is independent,
+**D9. Parallelism with `rayon` (decided, Slice 10, not written).** Each candidate anchor is independent,
 so the outer loop of `run_gsearch` becomes a parallel iterator.
+
+**D10. Distance to the line, not to the segment (decided, Slice 7).** The corridor of a query edge
+and the area cost use the distance from a node to the infinite **line** through the two moved end
+points. Python uses the segment. This is a planned difference: scores and some rejections differ
+from Python's. The ignored test `a_node_past_the_end_is_free_on_a_line` checks it.
+
+**D11. Placeholders for the three parts you write yourself (decided, Slices 6 and 7).** The
+Procrustes fit (`procrustes::fit`), Dijkstra with the corridor, and the area cost
+(`path_scoring::find_paths`) are not in the guide. Each is a function with a fixed signature and a
+placeholder body (the identity transform; cost `0.0` and no paths), a constant `IS_PLACEHOLDER` that
+the CLI reads to print a warning and to set `placeholder_scoring` in the JSON, and `#[ignore]`
+tests that are your target. The pipeline runs from start to end, and counts anchors and
+mappings, but the scores mean nothing until you replace them. See "Finishing the placeholders".
+
+**D12. Only `k` alignments in memory (decided, Slice 8).** Python keeps every alignment and sorts at
+the end. `TopK` keeps a sorted list of at most `k`, and ties keep the older item first.
 
 ### Behaviour to keep (from reading the Python code)
 
@@ -127,23 +146,46 @@ affect the results, so the later slices copy them:
   these occurs in the data.
 - `radius_from` of a graph with one node is `0.0`. Python's `max` raises `ValueError` there.
   This is a planned difference from Python.
-- A query with one node has no candidate poses in Rust (Slice 5). Python uses the anchor as its
+- A query with one node has no candidate mappings in Rust (Slice 5). Python uses the anchor as its
   own alignment node there. This is the second planned difference.
-- `get_candidate_matches` returns `Option<Vec<Pose>>` (Slice 5). `None` means "no pose", where
-  Python returns `[]`. `Some(poses)` always holds at least one pose.
-- A pose is a `Vec<usize>`: `pose[i]` is the crop position matched to Q position `i` (D7).
+- `get_candidate_matches` returns `Option<Vec<Mapping>>` (Slice 5). `None` means "no mapping", where
+  Python returns `[]`. `Some(mappings)` always holds at least one mapping.
+- A mapping is a `Vec<usize>`: `mapping[i]` is the crop position matched to Q position `i` (D7).
   Python uses a `{Q id: G id}` dict.
 - `get_candidate_matches` chooses the alignment node with the fewest annulus matches, and
   takes the first one if there is a tie.
 - Nodes on the anchor-to-alignment axis go into both the rotation and the reflection table.
 - The matches of each query node are in increasing crop position, as `np.flatnonzero` gives
-  them, so the poses come out in the same order as in Python.
+  them, so the mappings come out in the same order as in Python.
 - `_align_graph` allows reflections. It finds the best orthogonal matrix, not only the best
   rotation.
+- **Terms** (see `GLOSSARY.md`): a *mapping* is one injective node-to-node assignment (the older
+  guide text and your `Pose` type call it a pose); an *alignment* is a mapping with its transform,
+  score and subgraph.
 - The final score is `node_score + weight * edge_score`. Note that the docstring of
   `align_and_score` says `weight * node + (1 - weight) * edge`. The code and the docstring do
   not agree. The port follows the code unless you decide otherwise.
-- The Python CLI does not print `results`. The Rust CLI will print them.
+- The Python CLI does not print `results`. The Rust CLI prints a summary, and `-o` writes them.
+- The distance to a query edge is to the line, not the segment (D10). This is the third planned
+  difference from Python, after `radius_from` and the one-node query.
+- An empty query file is an error in the Rust CLI (`radius_from` would panic).
+- The number of mappings grows very fast with the tolerance. On `gr00049`: 408 at `-e 6`,
+  8 498 802 at `-e 9`, 281 132 804 at `-e 10`. Use the small graphs of `../gsearch/data/db` for
+  checks (Slice 8).
+
+## Finishing the placeholders
+
+`cargo test -- --ignored` is your work list: at the end of Slice 7 it reports `1 passed; 15 failed`.
+
+1. `procrustes::fit`: 4 tests (Slice 6). Delete `placeholder_fit_gives_the_identity`, set
+   `IS_PLACEHOLDER` to `false`.
+2. `path_scoring::find_paths`: 9 tests (Slice 7), including the line test. Set `IS_PLACEHOLDER` to
+   `false`. You probably add `dist_to_line` to `geometry.rs`.
+3. `alignment::`: 3 tests that need both.
+4. Acceptance: run the CLI on the six small graphs (`gg00041`, `gd00040`, `go00038`, `go00028`,
+   `gg00016`, `gd00032`). The `lowest score` must be below `1e-6`, and the warning must be gone.
+   Each query was cut out of its own graph, so the best alignment is an exact copy.
+5. Profile again (Slice 9), because Dijkstra changes the picture.
 
 ## Concept index
 
@@ -203,3 +245,11 @@ Each concept is explained once, where you first type it. Later slices point back
 | `impl Fn` parameters, `Fn`/`FnMut`/`FnOnce`, `copied` on an iterator, a closure inside a closure, `extend`, `Vec == slice`, `bool::then_some` | Slice 5, Step 7 |
 | `==` on `Option`s, `for x in [a, b]`, `chain`, `match` on a tuple, or-patterns (`\|`) and `_` | Slice 5, Step 8 |
 | `unwrap_or_default` | Slice 5, Step 10 |
+| arrays of arrays, an associated `const`, `pub` fields, `sin_cos`, `#[ignore]` and `-- --ignored`, a `_` parameter | Slice 6, Steps 1, 5 |
+| `BTreeSet`, `windows(2)`, `min`/`max`, `into_iter`, a result type that holds ids | Slice 7, Steps 3b-3c |
+| `clap` derive, `Option<PathBuf>`, `default_value_t` | Slice 8, Step 7 |
+| `partition_point`, `Vec::insert`, `truncate` | Slice 8, Step 4 |
+| `impl FnMut` as a progress callback | Slice 8, Step 5 |
+| `log` macros and `env_logger` | Slice 8, Steps 1, 5, 7 |
+| `#[derive(Serialize)]`, `serde_json::to_writer`, `BufWriter`, a struct with a lifetime (`Report<'a>`) | Slice 8, Steps 6-7 |
+| a custom Cargo profile, `#[cfg(feature = ...)]`, an optional dependency, the global allocator, `let _name` vs `let _` | Slice 9, Steps 1, 4 |

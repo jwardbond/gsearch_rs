@@ -50,3 +50,17 @@ The data is in `../gsearch/data/db/` (it is not in this repo). Small files for q
 `queries/gd00000_q.json` (3 nodes) and `graphs/gg00041.json` (78 nodes, 114 edges).
 `graphs/go00001.json` (238 MB, 452628 nodes) is the large-file timing check. `manifest.jsonl`
 contains duplicate `graph_id` rows, so check the counts against the real file.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`jwardbond/gsearch_rs`), used through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

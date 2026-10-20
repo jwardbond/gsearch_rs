@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Path scoring options</title>
+<style>
+  :root { --bg:#fff; --fg:#1d2330; --muted:#5b6475; --line:#d6dae3; --q:#c2410c; --g:#2563eb; --bad:#b91c1c; --ok:#15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#151922; --fg:#e6e9f0; --muted:#9aa3b5; --line:#303747; --q:#fb923c; --g:#60a5fa; --bad:#f87171; --ok:#4ade80; }
+  }
+  body { background:var(--bg); color:var(--fg); font:16px/1.55 system-ui,sans-serif; max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.5rem; } h2 { font-size:1.15rem; margin-top:2rem; }
+  code { background:var(--line); padding:0 .25em; border-radius:3px; }
+  table { border-collapse:collapse; width:100%; font-size:.92rem; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  svg { width:100%; height:auto; border:1px solid var(--line); border-radius:6px; }
+  figcaption { color:var(--muted); font-size:.9rem; margin-top:4px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .lbl { fill:var(--fg); font:12px system-ui,sans-serif; }
+  .qline { stroke:var(--q); stroke-width:3; } .qdot { fill:var(--q); }
+  .gline { stroke:var(--g); stroke-width:2; } .gdot { fill:var(--g); }
+  .guide { stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; }
+  .err { stroke:var(--bad); stroke-width:2; }
+  .qthin { stroke:var(--q); stroke-width:1.5; opacity:.6; }
+  .gline2 { stroke:var(--muted); stroke-width:2; fill:none; }
+  .leash { stroke:var(--muted); stroke-width:1.5; }
+  .band { fill:var(--line); opacity:.45; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .pair figure { margin:0; }
+  @media (max-width:600px) { .pair { grid-template-columns:1fr; } }
+  .area { fill:var(--bad); opacity:.6; }
+  td ul { margin:4px 0; padding-left:1.1em; }
+</style>
+</head>
+<body>
+
+<h1>Path scoring options</h1>
+
+<p>Setup: <code>T</code> is a rigid transform that moves Q onto G. <code>φ</code> maps each node of Q to a node of G.
+For each edge (u,v) of Q, we find the best path <code>P</code> in G from φ(u) to φ(v).
+We need a score that is low for a good match. The lowest score over all φ and T is the answer.</p>
+
+<h2>The four options</h2>
+<p>In all options, T is fitted with Procrustes (Frobenius error on the nodes). The options differ in how they score the path P
+for each edge (u,v) of Q. Let L = ‖T(u) − T(v)‖ be the length of the moved Q edge.</p>
+<p><b>The last column.</b> Each option has its own dist function, so it has its own S. The last column asks:
+does the algorithm find the φ and T that minimize <em>that</em> S? It checks the three steps of the algorithm
+(see "Does the algorithm minimize S?" below): the best path, the φ filter, and the fit of T.</p>
+
+<table>
+<tr><th></th><th>Distance used</th><th>Dijkstra exact?</th><th>End-point property?</th><th>Upside</th><th>Downside</th><th>Minimizes its own S?</th></tr>
+<tr>
+  <td><b>1. Fréchet</b></td>
+  <td>The shortest leash for a walk along the Q edge and along the path, with no step back.</td>
+  <td class="bad">No. Use a map-matching algorithm (Alt et al., 2003). I did not check the details.</td>
+  <td class="ok">Yes</td>
+  <td class="ok">Stops overshoot and undershoot. The proofs below hold.</td>
+  <td class="bad">Only the largest error counts. One spike dominates the score.</td>
+  <td class="ok"><b>Nearly.</b>
+    <ul><li>Path: exact, with a map-matching algorithm.</li>
+    <li>φ filter: loses nothing.</li>
+    <li>T: Procrustes is within a bound of the best T.</li></ul></td>
+</tr>
+<tr>
+  <td><b>2. Area to segment</b></td>
+  <td>Area between the path and the Q segment. Past an end of the segment, the path is measured to the end point.</td>
+  <td class="ok">Yes. Each path edge adds a non-negative area. Use the step along the Q edge as |dx|.</td>
+  <td class="bad">No</td>
+  <td class="ok">A sum. Uses the whole shape of the path. Stops most overshoot.</td>
+  <td class="bad">Undershoot has almost no area. A path edge across the Q edge (dx = 0) has zero area. The area is length², so it grows with the edge length.</td>
+  <td class="bad"><b>Only the path step.</b>
+    <ul><li>Path: exact (Dijkstra).</li>
+    <li>φ filter: can remove the best φ. A low area does not limit the node offsets.</li>
+    <li>T: Procrustes can be far from the best T. No bound.</li></ul>
+    With the end-point terms, it becomes "nearly", as for Fréchet.</td>
+</tr>
+<tr>
+  <td><b>3. Area to line</b></td>
+  <td>Area between the path and the infinite line through T(u) and T(v).</td>
+  <td class="ok">Yes. Same as option 2.</td>
+  <td class="bad">No</td>
+  <td class="ok">Simplest area. A closed form for each path edge.</td>
+  <td class="bad">Overshoot and undershoot cost zero. Same problems as option 2, and more.</td>
+  <td class="bad"><b>Only the path step.</b>
+    <ul><li>Path: exact (Dijkstra).</li>
+    <li>φ filter: can remove the best φ. No limit on the node offsets.</li>
+    <li>T: Procrustes can be far from the best T. No bound.</li></ul>
+    With the end-point terms, it becomes "nearly".</td>
+</tr>
+<tr>
+  <td><b>4. Shortest path</b></td>
+  <td>|length(P) − L|. The difference between the path length and the Q edge length.</td>
+  <td class="bad">Only if the shortest path is at least L. Then the shortest path is the best. If it is shorter than L, you need a path with a length close to L. This can encode subset sum, so it is hard in general. I did not check the case with a corridor.</td>
+  <td class="bad">No</td>
+  <td class="ok">Simplest. Needs only edge lengths. Fast when the shortest path is at least L.</td>
+  <td class="bad">Does not use the shape or the position of the Q edge. It picks short paths, not close paths.</td>
+  <td class="bad"><b>Only partly.</b>
+    <ul><li>Path: exact only if the shortest path is at least L.</li>
+    <li>φ filter: can remove the best φ. No limit on the node offsets.</li>
+    <li>T: not needed. L does not change under a rigid T, so this S does not depend on T.</li></ul></td>
+</tr>
+</table>
+
+<h2>Each option: how it works, and where it fails</h2>
+<h3>1. Fréchet distance</h3>
+<div class="pair">
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Frechet leash"><line class="qline" x1="30" y1="60" x2="250" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="250" cy="60" r="5"/><polyline class="gline" fill="none" points="30,60 90,45 150,72 210,50 250,60"/><circle class="gdot" cx="90" cy="45" r="4"/><circle class="gdot" cx="150" cy="72" r="4"/><circle class="gdot" cx="210" cy="50" r="4"/><line class="leash" x1="85" y1="60" x2="90" y2="45"/><line class="err" x1="150" y1="60" x2="150" y2="72"/><line class="leash" x1="205" y1="60" x2="210" y2="50"/><text class="lbl" x="8" y="105">Grey = leash. Red = longest leash.</text><text class="lbl" x="8" y="125">Fréchet = the length of the longest leash.</text></svg><figcaption>How it works</figcaption></figure>
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Maximum only"><line class="qline" x1="30" y1="60" x2="250" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="250" cy="60" r="5"/><polyline class="gline" fill="none" points="30,60 110,60 140,25 170,60 250,60"/><polyline class="gline2" fill="none" points="30,60 30,88 250,88 250,60"/><text class="lbl" x="150" y="22">P1: Fréchet 35</text><text class="lbl" x="100" y="106">P2: Fréchet 28</text><text class="lbl" x="8" y="130">Fréchet picks P2. P1 is exact except for one spike.</text></svg><figcaption>Where it fails</figcaption></figure>
+</div>
+<h3>2. Area to segment</h3>
+<div class="pair">
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Area to the segment"><polygon class="area" points="30,60 90,48 120,60"/><polygon class="area" points="120,60 150,72 183,60"/><polygon class="area" points="183,60 205,52 262,68 230,60"/><line class="qline" x1="30" y1="60" x2="230" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="230" cy="60" r="5"/><polyline class="gline" fill="none" points="30,60 90,48 150,72 205,52 262,68"/><circle class="gdot" cx="90" cy="48" r="4"/><circle class="gdot" cx="150" cy="72" r="4"/><circle class="gdot" cx="205" cy="52" r="4"/><circle class="gdot" cx="262" cy="68" r="4"/><text class="lbl" x="8" y="105">Red = area between the path and the segment.</text><text class="lbl" x="8" y="125">Past the end, the path is measured to the end point.</text></svg><figcaption>How it works</figcaption></figure>
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Undershoot"><line class="qline" x1="30" y1="60" x2="270" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="270" cy="60" r="5"/><line class="gline" x1="130" y1="61" x2="170" y2="59"/><circle class="gdot" cx="130" cy="61" r="4"/><circle class="gdot" cx="170" cy="59" r="4"/><line class="err" x1="30" y1="90" x2="130" y2="90"/><line class="err" x1="170" y1="90" x2="270" y2="90"/><text class="lbl" x="45" y="106">not covered</text><text class="lbl" x="190" y="106">not covered</text><text class="lbl" x="100" y="42">area ≈ 0</text><text class="lbl" x="8" y="130">A short path on the segment has almost no area.</text></svg><figcaption>Where it fails</figcaption></figure>
+</div>
+<h3>3. Area to line</h3>
+<div class="pair">
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Area to the line"><line class="guide" x1="5" y1="60" x2="295" y2="60"/><polygon class="area" points="30,60 80,48 105,60"/><polygon class="area" points="105,60 130,72 160,60"/><polygon class="area" points="160,60 180,52 250,60"/><line class="qline" x1="30" y1="60" x2="250" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="250" cy="60" r="5"/><polyline class="gline" fill="none" points="30,60 80,48 130,72 180,52 250,60"/><circle class="gdot" cx="80" cy="48" r="4"/><circle class="gdot" cx="130" cy="72" r="4"/><circle class="gdot" cx="180" cy="52" r="4"/><text class="lbl" x="8" y="105">Red = area between the path and the line.</text><text class="lbl" x="8" y="125">The line has no ends, so only the path span counts.</text></svg><figcaption>How it works</figcaption></figure>
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Overshoot"><line class="guide" x1="5" y1="60" x2="295" y2="60"/><line class="qline" x1="30" y1="60" x2="180" y2="60"/><circle class="qdot" cx="30" cy="60" r="5"/><circle class="qdot" cx="180" cy="60" r="5"/><polyline class="gline" fill="none" points="30,60 105,61 180,60 270,59"/><circle class="gdot" cx="30" cy="60" r="4"/><circle class="gdot" cx="105" cy="61" r="4"/><circle class="gdot" cx="180" cy="60" r="4"/><circle class="gdot" cx="270" cy="59" r="4"/><line class="err" x1="180" y1="90" x2="270" y2="90"/><text class="lbl" x="190" y="106">not checked</text><text class="lbl" x="190" y="45">area ≈ 0</text><text class="lbl" x="8" y="130">The path goes past the Q edge. The area is zero.</text></svg><figcaption>Where it fails</figcaption></figure>
+</div>
+<h3>4. Shortest path</h3>
+<div class="pair">
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Length difference"><line class="qline" x1="30" y1="70" x2="250" y2="70"/><circle class="qdot" cx="30" cy="70" r="5"/><circle class="qdot" cx="250" cy="70" r="5"/><polyline class="gline" fill="none" points="30,70 140,40 250,70"/><polyline class="gline2" fill="none" points="30,70 100,115 180,115 250,70"/><text class="lbl" x="8" y="16">Q edge length 220.</text><text class="lbl" x="8" y="32">Blue 228: difference 8. Grey 246: difference 26.</text><text class="lbl" x="100" y="88">Q edge</text><text class="lbl" x="128" y="134">pick the smallest difference</text></svg><figcaption>How it works</figcaption></figure>
+<figure><svg viewBox="0 0 300 145" role="img" aria-label="Short but far"><rect class="band" x="5" y="40" width="290" height="60"/><text class="lbl" x="8" y="36">corridor</text><line class="qline" x1="30" y1="70" x2="250" y2="70"/><circle class="qdot" cx="30" cy="70" r="5"/><circle class="qdot" cx="250" cy="70" r="5"/><polyline class="gline2" fill="none" points="30,70 70,48 105,92 140,48 175,92 210,48 250,70"/><polyline class="gline" fill="none" points="30,70 90,25 190,25 250,70"/><text class="lbl" x="100" y="18">blue: 250 − 220 = 30, far</text><text class="lbl" x="8" y="118">grey: 316 − 220 = 96, near</text><text class="lbl" x="8" y="138">The blue path wins. It is not close to the Q edge.</text></svg><figcaption>Where it fails</figcaption></figure>
+</div>
+
+<h2>What this means</h2>
+<ul>
+  <li>Only Fréchet has the end-point property. The other options do not check that the path <em>covers</em> the Q edge.</li>
+  <li>Without the end-point property, the φ filter and the Procrustes fit have no guarantee. The path step is still exact for options 2 and 3.</li>
+  <li>Options 2 and 3 are sums. Dijkstra is exact for them. They are the cheap choice.</li>
+  <li>Option 2 is better than option 3. It stops most overshoot. It does not stop undershoot.</li>
+  <li>Option 4 does not use the Q edge shape. Use it only inside a corridor, if at all.</li>
+  <li>You can add the end-point terms ‖T(u) − φ(u)‖ + ‖T(v) − φ(v)‖ to option 2. This gives it the end-point property. Dijkstra stays exact, because the terms do not depend on P.</li>
+  <li>Divide an area by the Q edge length to get a mean distance.</li>
+  <li>Nodes of Q with no edges get no cost in all four options.</li>
+</ul>
+
+<h2>Does the algorithm minimize S?</h2>
+<p>The formulation is: find φ and T that minimize S. The algorithm has three steps. Only the first step is exact.
+Each step is shown below.</p>
+
+<h3>Step 1: best path P for a fixed φ and T. Exact.</h3>
+<ul>
+  <li>Dijkstra finds the true minimum when the path cost is a sum of non-negative terms.</li>
+  <li>The area costs are such sums. The shortest-path cost is a sum only when the shortest path is at least L (see the table).</li>
+  <li>Put the ε-corridor in the definition of the path set. Then the minimum is exact.</li>
+  <li>Fréchet and Hausdorff are not sums. Dijkstra is not exact for them. The path step for D needs a map-matching algorithm.</li>
+</ul>
+
+<h3>Step 2: best φ. Exact only for the kept candidates.</h3>
+<ul>
+  <li>The annulus and triangulation filters remove some φ.</li>
+  <li>You must show that they never remove a φ with a low score.</li>
+  <li>The proof needs this property of dist: <b>dist is at least the offset of each end point.</b>
+      That is: dist(T(u,v), P) ≥ max(‖T(u) − φ(u)‖, ‖T(v) − φ(v)‖).</li>
+  <li>Fréchet has this property. The two area options and the shortest-path option do not. See the "where it fails" figures.</li>
+  <li>Assume a match has S ≤ δ. Then each node is at most δ from its target.</li>
+  <li>T is an isometry. So each annulus distance changes by at most 2δ.</li>
+  <li>Therefore tol = 2δ removes no match with S ≤ δ.</li>
+</ul>
+
+<h3>Step 3: best T. Not exact. The proof gives a bound.</h3>
+<ul>
+  <li>Procrustes minimizes the node error. It does not minimize S.</li>
+  <li>Let T* be the best T for S. Let T' be the Procrustes T. Let S* be the best score.</li>
+  <li>Use the end-point property. Then the sum of squared node offsets under T* is at most 2·S*².</li>
+  <li>Procrustes does not do worse than T* on this sum. So its sum is also at most 2·S*².</li>
+  <li>Therefore no node moves more than √8 · S* between T* and T'.</li>
+  <li>A rigid map moves a segment by at most the larger end-point move.
+      So S(T') ≤ (1 + c·|E<sub>Q</sub>|) · S*, where c is a constant.</li>
+  <li>The bound is weak, but it gives two useful results.
+    <ul>
+      <li>If S* = 0, then T' is optimal. A perfect overlap is always found.</li>
+      <li>If S* is small, then T' is close to optimal.</li>
+    </ul></li>
+  <li>To get closer to the minimum, refit T on the path points after Dijkstra. This can only decrease S.</li>
+</ul>
+<p><b>Note:</b> these steps have not been checked in detail. Check the constants before you use them in the paper.</p>
+
+<h3>The problem with the Python distance</h3>
+<p>Steps 2 and 3 need the end-point property. The Python code uses distance to a segment. It does not have this property.
+There are two options.</p>
+<ol>
+  <li>Define dist as Fréchet. The proofs hold. Dijkstra is not exact.</li>
+  <li>Define dist as the segment-area cost <b>plus</b> ‖T(u) − φ(u)‖ + ‖T(v) − φ(v)‖.
+      The proofs hold. The end-point terms do not depend on P, so Dijkstra stays exact.
+      Each node is counted once for each edge that touches it.</li>
+</ol>
+<p>Option 2 is the better choice.</p>
+
+<h2>Suggestion</h2>
+<ol>
+  <li>Fit T with Procrustes. This is cheap.</li>
+  <li>For the proofs, use Fréchet, or use option 2 (area to segment) with the end-point terms.</li>
+  <li>Do not use option 3 or option 4 alone.</li>
+</ol>
+<p>Do you want an experiment on real data? Compare the ranking of the true match under each option.</p>
+
+</body>
+</html>

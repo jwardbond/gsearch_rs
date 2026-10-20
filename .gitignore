@@ -1,1 +1,7 @@
 /target
+
+
+
+# llm
+docs/agents/
+.claude/skills/
