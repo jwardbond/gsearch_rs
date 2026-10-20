@@ -46,7 +46,7 @@ impl SpatialIndex {
     pub fn make_crop(&self, anchor: usize, radius: f64) -> Graph {
         let hits = self.query_radius(self.graph.coord(anchor), radius);
         let keep: Vec<usize> = hits.iter().map(|&(i, _)| i).collect();
-        let circle = self.graph.subgraph(&keep);
+        let circle = self.graph.subgraph_induced(&keep);
 
         // translate anchor index from graph -> circle
         let anchor = circle.index_of(self.graph.id(anchor)).unwrap();

@@ -1,11 +1,16 @@
 use crate::geometry::Point;
-use crate::io::{GraphFile, NodeId};
+use crate::io::{EdgeRecord, GraphFile, NodeId, NodeRecord};
+
+use serde::ser::{Serialize, Serializer};
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Graph {
+    /// The id of the graph file this graph comes from. A subgraph keeps the id of its parent.
+    graph_id: String,
     ids: Vec<NodeId>,
     coords: Vec<Point>,
     adj: Vec<Vec<usize>>,
@@ -53,11 +58,42 @@ impl Graph {
         }
 
         Ok(Graph {
+            graph_id: file.graph_id.clone(),
             ids,
             coords,
             adj,
             index_of,
         })
+    }
+
+    /// The inverse of `from_file`: nodes in position order, every edge once with `source` at the
+    /// smaller position.
+    pub fn to_file(&self) -> GraphFile {
+        let nodes = (0..self.node_count())
+            .map(|i| NodeRecord {
+                id: self.ids[i],
+                x: self.coords[i].x,
+                y: self.coords[i].y,
+            })
+            .collect();
+        let edges = self
+            .edges()
+            .into_iter()
+            .map(|(i, j)| EdgeRecord {
+                source: self.ids[i],
+                target: self.ids[j],
+            })
+            .collect();
+
+        GraphFile {
+            graph_id: self.graph_id.clone(),
+            nodes,
+            edges,
+        }
+    }
+
+    pub fn graph_id(&self) -> &str {
+        &self.graph_id
     }
 
     pub fn node_count(&self) -> usize {
@@ -121,7 +157,7 @@ impl Graph {
     }
 
     /// Makes the induced subgraph of the given nodes.
-    pub fn subgraph(&self, keep: &[usize]) -> Graph {
+    pub fn subgraph_induced(&self, keep: &[usize]) -> Graph {
         // build old -> new index map
         let mut new_of = HashMap::with_capacity(keep.len());
 
@@ -156,11 +192,38 @@ impl Graph {
         }
 
         Graph {
+            graph_id: self.graph_id.clone(),
             ids,
             coords,
             adj,
             index_of,
         }
+    }
+
+    /// Makes a subgraph from a list of edges.
+    pub fn subgraph(&self, edges: &[(usize, usize)]) -> Graph {
+        let mut keep: Vec<usize> = edges.iter().flat_map(|&(a, b)| [a, b]).collect();
+        keep.sort_unstable_by_key(|&i| self.ids[i]);
+        keep.dedup();
+
+        let mut graph = self.subgraph_induced(&keep);
+        for neighbors in &mut graph.adj {
+            neighbors.clear();
+        }
+
+        for &(a, b) in edges {
+            let a = graph.index_of[&self.ids[a]];
+            let b = graph.index_of[&self.ids[b]];
+            if a != b {
+                graph.adj[a].push(b);
+                graph.adj[b].push(a);
+            }
+        }
+        for neighbors in &mut graph.adj {
+            neighbors.sort_unstable();
+            neighbors.dedup();
+        }
+        graph
     }
 
     /// Gets the connected component of the graph that contains the given node.
@@ -180,7 +243,14 @@ impl Graph {
             }
         }
 
-        self.subgraph(&keep)
+        self.subgraph_induced(&keep)
+    }
+}
+
+/// Writes the graph in the format of a graph file.
+impl Serialize for Graph {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_file().serialize(serializer)
     }
 }
 
@@ -207,6 +277,63 @@ impl Error for GraphError {}
 mod tests {
     use super::*;
     use crate::test_fixtures::{COORDS, anchor_50, assert_close, file, fixture};
+
+    #[test]
+    fn to_file_is_the_inverse_of_from_file() {
+        let graph = fixture();
+
+        let file = graph.to_file();
+
+        assert_eq!(file.graph_id, "test");
+        assert_eq!(Graph::from_file(&file).unwrap(), graph);
+    }
+
+    #[test]
+    fn subgraphs_keep_the_id_of_the_parent() {
+        let graph = fixture();
+        let p = |id| graph.index_of(id).unwrap();
+
+        assert_eq!(graph.subgraph_induced(&[p(50), p(2)]).graph_id(), "test");
+        assert_eq!(graph.subgraph(&[(p(50), p(2))]).graph_id(), "test");
+        assert_eq!(graph.cc_containing(p(50)).graph_id(), "test");
+    }
+
+    #[test]
+    fn subgraph_keeps_only_the_given_edges() {
+        let graph = fixture();
+        let p = |id| graph.index_of(id).unwrap();
+        // 50-2 and 50-17 are both in the graph; keep only the first
+        let edges = [(p(50), p(2))];
+
+        let sub = graph.subgraph(&edges);
+
+        // only the end nodes, in increasing id order
+        assert_eq!(sub.node_count(), 2);
+        assert_eq!(sub.id(0), 2);
+        assert_eq!(sub.id(1), 50);
+        assert_eq!(sub.edges(), vec![(0, 1)]);
+    }
+
+    #[test]
+    fn serialized_graph_has_the_format_of_a_graph_file() {
+        let graph = Graph::from_file(&file(&[(1, 0.0, 0.0), (2, 3.0, 0.0)], &[(1, 2)])).unwrap();
+
+        let json = serde_json::to_value(&graph).unwrap();
+
+        assert_eq!(json["nodes"].as_array().unwrap().len(), 2);
+        assert_eq!(json["edges"][0]["source"], 1);
+        assert_eq!(json["graph_id"], "test");
+    }
+
+    #[test]
+    fn to_file_writes_each_edge_once() {
+        let graph = fixture();
+
+        let file = graph.to_file();
+
+        assert_eq!(file.nodes.len(), graph.node_count());
+        assert_eq!(file.edges.len(), graph.edge_count());
+    }
 
     #[test]
     fn counts_nodes() {
@@ -419,11 +546,11 @@ mod tests {
     }
 
     #[test]
-    fn subgraph_follows_the_order_of_keep() {
+    fn subgraph_induced_follows_the_order_of_keep() {
         let graph = fixture();
         let keep = [3, 2, 0]; // ids 8, 17, 50
 
-        let sub = graph.subgraph(&keep);
+        let sub = graph.subgraph_induced(&keep);
 
         // node k of the subgraph is node keep[k] of the graph
         assert_eq!(sub.node_count(), 3);
@@ -435,10 +562,10 @@ mod tests {
     }
 
     #[test]
-    fn subgraph_keeps_edges_between_kept_nodes() {
+    fn subgraph_induced_keeps_edges_between_kept_nodes() {
         let graph = fixture();
 
-        let sub = graph.subgraph(&[3, 2, 0]); // ids 8, 17, 50
+        let sub = graph.subgraph_induced(&[3, 2, 0]); // ids 8, 17, 50
 
         // 8-17 and 17-50 stay; 50-2 goes, because node 2 is not kept
         assert_eq!(sub.edge_count(), 2);
@@ -449,11 +576,11 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "repeated position")]
-    fn subgraph_rejects_repeated_position() {
+    fn subgraph_induced_rejects_repeated_position() {
         let graph = fixture();
 
         // position 0 twice would give the subgraph two nodes with id 50
-        graph.subgraph(&[0, 1, 0]);
+        graph.subgraph_induced(&[0, 1, 0]);
     }
 
     #[test]

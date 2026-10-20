@@ -121,8 +121,7 @@ mod tests {
             score,
             transform: Transform::IDENTITY,
             mapping: vec![(tag, tag)],
-            nodes: vec![tag],
-            edges: Vec::new(),
+            matched: graph(&[(tag, 0.0, 0.0)], &[]),
         }
     }
 
@@ -161,7 +160,7 @@ mod tests {
         }
 
         // the first two stay, as with a stable sort
-        let tags: Vec<NodeId> = top.items.iter().map(|a| a.nodes[0]).collect();
+        let tags: Vec<NodeId> = top.items.iter().map(|a| a.matched.id(0)).collect();
         assert_eq!(tags, vec![1, 2]);
     }
 

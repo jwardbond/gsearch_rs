@@ -1,25 +1,26 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use std::error::Error;
-use std::fs::read_to_string;
+use std::fs::{File, read_to_string};
+use std::io::BufWriter;
 use std::path::Path;
 
 pub type NodeId = u64;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeRecord {
     pub id: NodeId,
     pub x: f64,
     pub y: f64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EdgeRecord {
     pub source: NodeId,
     pub target: NodeId,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphFile {
     pub graph_id: String,
     pub nodes: Vec<NodeRecord>,
@@ -34,6 +35,12 @@ pub fn read_graph_file(path: &impl AsRef<Path>) -> Result<GraphFile, Box<dyn Err
     let text = read_to_string(path)?;
     let graph = parse_graph(&text)?;
     Ok(graph)
+}
+
+pub fn write_graph_file(path: &impl AsRef<Path>, file: &GraphFile) -> Result<(), Box<dyn Error>> {
+    let writer = BufWriter::new(File::create(path)?);
+    serde_json::to_writer(writer, file)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -65,6 +72,18 @@ mod tests {
         assert_eq!(graph.nodes[1].id, 20);
         assert_eq!(graph.nodes[2].y, 4.0);
         assert_eq!(graph.edges[1].target, 30);
+    }
+
+    #[test]
+    fn written_file_reads_back_the_same() {
+        let file = parse_graph(TRIANGLE).unwrap();
+        let path = std::env::temp_dir().join("gsearch_written_file_reads_back.json");
+
+        write_graph_file(&path, &file).unwrap();
+        let read_back = read_graph_file(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert_eq!(read_back, file);
     }
 
     #[test]
