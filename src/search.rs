@@ -1,5 +1,3 @@
-//! The search: every candidate anchor, every mapping, the best alignments (`core.py` in Python).
-
 use log::{debug, info};
 
 use crate::alignment::{Alignment, align_and_score};
@@ -25,15 +23,14 @@ pub struct SearchOutcome {
 
 /// The nodes of `g` to try as the anchor, with a score, best first.
 ///
-/// For now every node has the score `1.0`, as in Python, so the order is the order of the nodes.
-/// A module that ranks the candidates replaces the body of this function.
+/// For now every node has the score `1.0`. This is a placeholder for a future scoring function.
 fn get_candidate_anchors(_q_anchor: usize, _q: &Graph, g: &Graph) -> Vec<(usize, f64)> {
     let mut anchors: Vec<(usize, f64)> = (0..g.node_count()).map(|j| (j, 1.0)).collect();
     anchors.sort_by(|a, b| b.1.total_cmp(&a.1));
     anchors
 }
 
-/// The `k` lowest scores seen so far, in order. It never holds more than `k` alignments.
+/// The `k` lowest scores in order
 struct TopK {
     k: usize,
     items: Vec<Alignment>,
@@ -57,9 +54,9 @@ impl TopK {
     }
 }
 
-/// Searches `index.graph()` for `q`. `on_anchor(done, total)` is called after each anchor.
+/// Searches `index.graph()` for `q`.
 ///
-/// The anchor of `q` is its first node, and `q` must have at least one node.
+/// `on_anchor` is a callback used to report progress to watchers.
 pub fn run_gsearch(
     q: &Graph,
     index: &SpatialIndex,
@@ -69,26 +66,31 @@ pub fn run_gsearch(
     let q_anchor = 0;
     let radius = q.radius_from(q_anchor) + params.tol;
 
+    // Get all candidate anchors, sorted by score.
     let anchors = get_candidate_anchors(q_anchor, q, index.graph());
     let total = anchors.len();
 
+    // Build the candidate mappings.
     let mut best = TopK::new(params.k);
     let mut n_mappings = 0;
     for (done, &(g_anchor, _)) in anchors.iter().enumerate() {
         let crop = index.make_crop(g_anchor, radius);
 
-        // the anchor is position 0 of a crop
-        if let Some(mappings) = get_candidate_matches(q, &crop, q_anchor, 0, params.tol) {
-            debug!("anchor {g_anchor}: {} mappings", mappings.len());
-            n_mappings += mappings.len();
-            for mapping in &mappings {
-                if let Some(alignment) =
-                    align_and_score(q, &crop, mapping, params.tol, params.weight)
-                {
-                    best.push(alignment);
-                }
+        // Get the candidate mappings for a pair of anchors.
+        let Some(mappings) = get_candidate_matches(q, &crop, q_anchor, 0, params.tol) else {
+            on_anchor(done + 1, total);
+            continue;
+        };
+        debug!("anchor {g_anchor}: {} mappings", mappings.len());
+        n_mappings += mappings.len();
+
+        // Process each candidate mapping.
+        for mapping in &mappings {
+            if let Some(alignment) = align_and_score(q, &crop, mapping, params.tol, params.weight) {
+                best.push(alignment);
             }
         }
+
         on_anchor(done + 1, total);
     }
 
