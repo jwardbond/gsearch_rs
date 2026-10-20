@@ -23,9 +23,10 @@ pub fn get_candidate_matches(
     let q_coords = q.coords();
     let g_coords = g.coords();
 
+    // Build a list of matches based only on the distance to the anchor.
     let matches = annulus_matches(q_coords, g_coords, q_anchor, g_anchor, tol)?;
 
-    let q_align = alignment_node(&matches, q_anchor)?;
+    let q_align = get_alignment_node(q_coords, q_anchor)?;
     let q_sides = sides(q_coords, q_anchor, q_align);
 
     let mut mappings = Vec::new();
@@ -45,12 +46,15 @@ pub fn get_candidate_matches(
     (!mappings.is_empty()).then_some(mappings)
 }
 
-fn alignment_node(matches: &Matches, q_anchor: usize) -> Option<usize> {
-    (0..matches.len())
+/// Returns the index of the node in Q that is furthest from the anchor.
+fn get_alignment_node(q: &[Point], q_anchor: usize) -> Option<usize> {
+    let dist = |i: usize| q[i].dist(q[q_anchor]);
+    (0..q.len())
         .filter(|&i| i != q_anchor)
-        .min_by_key(|&i| matches[i].len())
+        .max_by(|&a, &b| dist(a).total_cmp(&dist(b)))
 }
 
+/// Helps filter a list of matches based on a predicate.
 fn filter_matches(matches: &Matches, keep: impl Fn(usize, usize) -> bool) -> Matches {
     matches
         .iter()
@@ -59,6 +63,10 @@ fn filter_matches(matches: &Matches, keep: impl Fn(usize, usize) -> bool) -> Mat
         .collect()
 }
 
+/// Returns the side of each node in `points` relative to the from-to line.
+///
+/// from - the index of the first point in the line
+/// to - the index of the second point in the line
 fn sides(points: &[Point], from: usize, to: usize) -> Vec<Side> {
     points
         .iter()
@@ -66,20 +74,13 @@ fn sides(points: &[Point], from: usize, to: usize) -> Vec<Side> {
         .collect()
 }
 
-fn same_hand(q: Side, g: Side) -> bool {
-    match (q, g) {
-        (Side::On, _) | (_, Side::On) => true,
-        _ => q == g,
-    }
-}
-
 fn split_by_handedness(
     matches: &Matches,
     q_sides: &[Side],
     g_sides: &[Side],
 ) -> (Matches, Matches) {
-    let rotation = filter_matches(matches, |i, j| same_hand(q_sides[i], g_sides[j]));
-    let reflection = filter_matches(matches, |i, j| same_hand(q_sides[i], g_sides[j].flipped()));
+    let rotation = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j]));
+    let reflection = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j].flipped()));
     (rotation, reflection)
 }
 
@@ -285,6 +286,31 @@ mod tests {
         let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
         assert!(mappings.is_none());
+    }
+
+    #[test]
+    fn alignment_node_is_the_furthest_from_the_anchor() {
+        // distances from Q[0]: 0, 3, 4
+        assert_eq!(get_alignment_node(&Q, 0), Some(2));
+    }
+
+    #[test]
+    fn alignment_node_is_never_the_anchor() {
+        // from Q[2] the others are at 4 and 5, and Q[2] itself is at 0
+        assert_eq!(get_alignment_node(&Q, 2), Some(1));
+    }
+
+    #[test]
+    fn alignment_node_ignores_the_order_of_the_points() {
+        let reversed: Vec<Point> = Q.iter().rev().copied().collect();
+
+        // the furthest node from reversed[2] (= Q[0]) is reversed[0] (= Q[2])
+        assert_eq!(get_alignment_node(&reversed, 2), Some(0));
+    }
+
+    #[test]
+    fn alignment_node_needs_a_second_node() {
+        assert_eq!(get_alignment_node(&Q[..1], 0), None);
     }
 
     #[test]

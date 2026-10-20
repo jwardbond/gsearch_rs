@@ -74,6 +74,16 @@ impl Side {
             Side::On => Side::On,
         }
     }
+
+    /// Determines if two sides are of the same handedness.
+    pub fn same_hand(self, other: Side) -> bool {
+        match (self, other) {
+            // If either is on the line, then the it is the same handedness.
+            (Side::On, _) | (_, Side::On) => true,
+            // Otherwise, they must be the same side to have the same handedness.
+            _ => self == other,
+        }
+    }
 }
 
 pub fn side_of(p: Point, a: Point, b: Point, atol: f64) -> Side {
@@ -109,6 +119,21 @@ mod tests {
             (actual - expected).abs() < 1e-9,
             "expected {expected}, got {actual}"
         );
+    }
+
+    #[test]
+    fn same_hand_is_true_for_equal_sides_and_for_on() {
+        assert!(Side::Left.same_hand(Side::Left));
+        assert!(Side::Right.same_hand(Side::Right));
+        assert!(Side::On.same_hand(Side::Left));
+        assert!(Side::Right.same_hand(Side::On));
+        assert!(Side::On.same_hand(Side::On));
+    }
+
+    #[test]
+    fn same_hand_is_false_for_opposite_sides() {
+        assert!(!Side::Left.same_hand(Side::Right));
+        assert!(!Side::Right.same_hand(Side::Left));
     }
 
     #[test]
