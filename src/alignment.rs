@@ -23,7 +23,9 @@ pub struct Alignment {
 }
 
 /// Aligns `q` onto the crop with `mapping`, routes each edge of `q` through the crop, and scores
-/// the result. `None` if some edge has no path.
+/// the result.
+///
+/// `None` if some edge has no path.
 ///
 /// `score = node_score + weight * edge_score`.
 pub fn align(
@@ -148,7 +150,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit and find_paths are placeholders"]
     fn a_mapping_to_other_positions_is_reported_by_id() {
         let (q, g) = q_and_copy();
 
@@ -160,7 +161,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit and find_paths are placeholders"]
     fn nodes_are_sorted_by_id_not_by_position() {
         let q = graph(&[(1, 0.0, 0.0), (2, 3.0, 0.0)], &[(1, 2)]);
         // the ids fall while the positions rise
@@ -195,7 +195,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit and find_paths are placeholders"]
     fn the_edges_are_the_g_edges_on_the_paths() {
         let (q, g) = q_and_copy();
 
@@ -205,7 +204,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit and find_paths are placeholders"]
     fn a_query_edge_without_a_path_gives_none() {
         let q = graph(&[(1, 0.0, 0.0), (2, 4.0, 0.0)], &[(1, 2)]);
         // the two mapped nodes are not connected

@@ -166,7 +166,7 @@ affect the results, so the later slices copy them:
   `align_and_score` says `weight * node + (1 - weight) * edge`. The code and the docstring do
   not agree. The port follows the code unless you decide otherwise.
 - The Python CLI does not print `results`. The Rust CLI prints a summary, and `-o` writes them.
-- The distance to a query edge is to the line, not the segment (D10). This is the third planned
+- The distance to a query edge is to the line, not the segment (D10). The path cost is the area between the path and that line; a step that crosses the line counts as two triangles. This is the third planned
   difference from Python, after `radius_from` and the one-node query.
 - An empty query file is an error in the Rust CLI (`radius_from` would panic).
 - The number of mappings grows very fast with the tolerance. On `gr00049`: 408 at `-e 6`,

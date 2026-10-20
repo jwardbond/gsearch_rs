@@ -11,7 +11,6 @@ use serde::Serialize;
 use gsearch::alignment::Alignment;
 use gsearch::graph::Graph;
 use gsearch::io::read_graph_file;
-use gsearch::path_scoring;
 use gsearch::search::{DEFAULT_WEIGHT, SearchParams, run_gsearch};
 use gsearch::spatial_index::SpatialIndex;
 
@@ -50,8 +49,6 @@ struct Report<'a> {
     weight: f64,
     n_anchors: usize,
     n_mappings: usize,
-    /// True while the transform or the routing is a placeholder: the scores mean nothing then.
-    placeholder_scoring: bool,
     results: &'a [Alignment],
 }
 
@@ -82,7 +79,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     bar.finish_and_clear();
 
-    let placeholder_scoring = path_scoring::IS_PLACEHOLDER;
     println!(
         "{} in {}: {} anchors, {} mappings, {} alignments kept ({:.3} s)",
         query_file.graph_id,
@@ -95,9 +91,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Some(best) = outcome.alignments.first() {
         println!("lowest score: {}", best.score);
     }
-    if placeholder_scoring {
-        println!("warning: the scores use a placeholder (see procrustes.rs, path_scoring.rs)");
-    }
 
     if let Some(path) = &args.output {
         let report = Report {
@@ -108,7 +101,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             weight: args.weight,
             n_anchors: outcome.n_anchors,
             n_mappings: outcome.n_mappings,
-            placeholder_scoring,
             results: &outcome.alignments,
         };
         serde_json::to_writer(BufWriter::new(File::create(path)?), &report)?;

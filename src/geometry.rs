@@ -135,6 +135,29 @@ pub fn dist_to_segment(p: Point, a: Point, b: Point) -> f64 {
     p.dist(closest_point)
 }
 
+/// Signed distance from p to the infinite line through a and b. Left of a->b is positive.
+///
+/// Panics if a == b, because then there is no line.
+pub fn signed_dist_to_line(p: Point, a: Point, b: Point) -> f64 {
+    let ab = b - a;
+    let len = ab.norm();
+    assert!(len > 0.0, "a line needs two different points");
+    ab.cross(p - a) / len
+}
+
+/// Distance from p to the infinite line through a and b. Panics if a == b.
+pub fn dist_to_line(p: Point, a: Point, b: Point) -> f64 {
+    signed_dist_to_line(p, a, b).abs()
+}
+
+/// Position of p along the line a->b: 0 at a, and the distance a to b at b. Panics if a == b.
+pub fn along_line(p: Point, a: Point, b: Point) -> f64 {
+    let ab = b - a;
+    let len = ab.norm();
+    assert!(len > 0.0, "a line needs two different points");
+    ab.dot(p - a) / len
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +306,43 @@ mod tests {
         assert_close(dist_to_segment(Point::new(1.0, 1.0), c, c), 0.0);
         assert_close(dist_to_segment(Point::new(4.0, 5.0), c, c), 5.0);
         assert_close(dist_to_segment(Point::new(1.0, 4.0), c, c), 3.0);
+    }
+
+    #[test]
+    fn line_distance_ignores_the_ends_of_the_segment() {
+        // (6, 0) is past b, but on the line
+        assert_close(dist_to_line(Point::new(6.0, 0.0), A, B), 0.0);
+        assert_close(dist_to_line(Point::new(-3.0, 2.0), A, B), 2.0);
+        assert_close(dist_to_line(Point::new(7.0, -4.0), A, B), 4.0);
+    }
+
+    #[test]
+    fn signed_line_distance_is_positive_on_the_left() {
+        assert_close(signed_dist_to_line(Point::new(2.0, 3.0), A, B), 3.0);
+        assert_close(signed_dist_to_line(Point::new(2.0, -3.0), A, B), -3.0);
+        // reversing the direction flips the sign
+        assert_close(signed_dist_to_line(Point::new(2.0, 3.0), B, A), -3.0);
+    }
+
+    #[test]
+    fn line_distance_of_a_slanted_line() {
+        // the line y = x; (2, 0) is sqrt(2) below it
+        let d = signed_dist_to_line(Point::new(2.0, 0.0), A, Point::new(1.0, 1.0));
+
+        assert_close(d, -2.0_f64.sqrt());
+    }
+
+    #[test]
+    fn along_line_measures_from_a() {
+        assert_close(along_line(A, A, B), 0.0);
+        assert_close(along_line(Point::new(3.0, 5.0), A, B), 3.0);
+        assert_close(along_line(Point::new(-2.0, 1.0), A, B), -2.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "two different points")]
+    fn line_distance_panics_for_equal_points() {
+        dist_to_line(Point::new(1.0, 1.0), A, A);
     }
 
     // The axis (0,0) -> (1,0) points along +x.
