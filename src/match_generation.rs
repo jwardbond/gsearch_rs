@@ -23,12 +23,13 @@ pub fn get_candidate_matches(
     let q_coords = q.coords();
     let g_coords = g.coords();
 
-    // Build a list of matches based only on the distance to the anchor.
+    // Build a list of matches based only on the distance to the anchor node.
     let matches = annulus_matches(q_coords, g_coords, q_anchor, g_anchor, tol)?;
 
     let q_align = get_alignment_node(q_coords, q_anchor)?;
-    let q_sides = sides(q_coords, q_anchor, q_align);
+    let q_sides = get_sides(q_coords, q_anchor, q_align);
 
+    // Align second nodes and triangulate.
     let mut mappings = Vec::new();
     for &g_align in &matches[q_align] {
         let both = filter_matches(&matches, |i, j| {
@@ -38,10 +39,12 @@ pub fn get_candidate_matches(
                 tol,
             )
         });
-        let g_sides = sides(g_coords, g_anchor, g_align);
-        let (rotation, reflection) = split_by_handedness(&both, &q_sides, &g_sides);
-        mappings.extend(generate_candidates(&rotation));
-        mappings.extend(generate_candidates(&reflection));
+
+        let g_sides = get_sides(g_coords, g_anchor, g_align);
+        let (normal, reflected) = split_by_handedness(&both, &q_sides, &g_sides);
+
+        mappings.extend(generate_candidates(&normal));
+        mappings.extend(generate_candidates(&reflected));
     }
     (!mappings.is_empty()).then_some(mappings)
 }
@@ -67,24 +70,25 @@ fn filter_matches(matches: &Matches, keep: impl Fn(usize, usize) -> bool) -> Mat
 ///
 /// from - the index of the first point in the line
 /// to - the index of the second point in the line
-fn sides(points: &[Point], from: usize, to: usize) -> Vec<Side> {
+fn get_sides(points: &[Point], from: usize, to: usize) -> Vec<Side> {
     points
         .iter()
         .map(|&p| side_of(p, points[from], points[to], COLLINEAR_TOL))
         .collect()
 }
 
+/// Splits a set of matches into those that are consistent with the original handedness and those that are consistent with the reflected handedness.
 fn split_by_handedness(
     matches: &Matches,
     q_sides: &[Side],
     g_sides: &[Side],
 ) -> (Matches, Matches) {
-    let rotation = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j]));
-    let reflection = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j].flipped()));
-    (rotation, reflection)
+    let normal = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j]));
+    let reflected = filter_matches(matches, |i, j| q_sides[i].same_hand(g_sides[j].flipped()));
+    (normal, reflected)
 }
 
-/// True when two distances agree within `tol`. A difference of exactly `tol` counts.
+/// Returns true when two distances agree within `tol`.
 fn within_tol(q_dist: f64, g_dist: f64, tol: f64) -> bool {
     (q_dist - g_dist).abs() <= tol
 }
