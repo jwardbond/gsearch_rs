@@ -58,6 +58,31 @@ impl Mul<f64> for Point {
     }
 }
 
+/// A rigid transformation matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Transform {
+    pub r: [[f64; 2]; 2],
+    pub t: Point,
+}
+
+impl Transform {
+    pub const IDENTITY: Transform = Transform {
+        r: [[1.0, 0.0], [0.0, 1.0]],
+        t: Point { x: 0.0, y: 0.0 },
+    };
+
+    pub fn apply(&self, p: Point) -> Point {
+        Point::new(
+            p.x * self.r[0][0] + p.y * self.r[1][0] + self.t.x,
+            p.x * self.r[0][1] + p.y * self.r[1][1] + self.t.y,
+        )
+    }
+
+    pub fn apply_all(&self, points: &[Point]) -> Vec<Point> {
+        points.iter().map(|&p| self.apply(p)).collect()
+    }
+}
+
 /// Defines what side of a line a point falls on
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
@@ -119,6 +144,63 @@ mod tests {
             (actual - expected).abs() < 1e-9,
             "expected {expected}, got {actual}"
         );
+    }
+
+    fn assert_point_close(actual: Point, expected: Point) {
+        assert_close(actual.x, expected.x);
+        assert_close(actual.y, expected.y);
+    }
+
+    #[test]
+    fn identity_moves_nothing() {
+        let p = Point::new(3.0, -2.0);
+
+        assert_eq!(Transform::IDENTITY.apply(p), p);
+    }
+
+    #[test]
+    fn apply_multiplies_a_row_vector_then_shifts() {
+        let t = Transform {
+            r: [[0.0, -1.0], [1.0, 0.0]],
+            t: Point::new(10.0, 20.0),
+        };
+
+        let moved = t.apply(Point::new(3.0, 0.0));
+
+        // (3, 0) * R is (0, -3), and the shift adds (10, 20)
+        assert_point_close(moved, Point::new(10.0, 17.0));
+    }
+
+    #[test]
+    fn apply_uses_both_rows_of_r() {
+        let t = Transform {
+            r: [[0.0, -1.0], [1.0, 0.0]],
+            t: Point::new(0.0, 0.0),
+        };
+
+        let moved = t.apply(Point::new(0.0, 4.0));
+
+        // (0, 4) * R is (4, 0)
+        assert_point_close(moved, Point::new(4.0, 0.0));
+    }
+
+    #[test]
+    fn apply_all_keeps_the_order() {
+        let t = Transform {
+            r: [[1.0, 0.0], [0.0, 1.0]],
+            t: Point::new(1.0, 1.0),
+        };
+        let points = [
+            Point::new(0.0, 0.0),
+            Point::new(3.0, 0.0),
+            Point::new(0.0, 4.0),
+        ];
+
+        let moved = t.apply_all(&points);
+
+        assert_eq!(moved.len(), 3);
+        assert_point_close(moved[0], Point::new(1.0, 1.0));
+        assert_point_close(moved[2], Point::new(1.0, 5.0));
     }
 
     #[test]

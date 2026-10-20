@@ -108,8 +108,8 @@ pub fn run_gsearch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Transform;
     use crate::io::NodeId;
-    use crate::procrustes::Transform;
     use crate::test_fixtures::file;
 
     fn graph(nodes: &[(NodeId, f64, f64)], edges: &[(NodeId, NodeId)]) -> Graph {

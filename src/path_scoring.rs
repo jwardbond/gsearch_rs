@@ -1,6 +1,6 @@
 //! The best path in the crop for each edge of the query (`_find_paths` in Python).
 
-use crate::geometry::Point;
+use crate::geometry::Transform;
 use crate::graph::Graph;
 
 /// True while `find_paths` is a placeholder. Set it to `false` when you write `find_paths`.
@@ -19,10 +19,11 @@ pub struct EdgeRoutes {
 /// PLACEHOLDER. Finds the best path in `g` for every edge of `q`.
 ///
 /// - `mapping[i]` is the position in `g` of the node of `q` at position `i`.
-/// - `moved_q[i]` is the moved position of the node of `q` at position `i`.
+/// - `transform` moves `q` onto `g`. The moved position of the node of `q` at position `i` is
+///   `transform.apply(q.coord(i))`.
 ///
 /// For the edge from `u` to `v`, the corridor is the set of nodes of `g` that are within `tol`
-/// of the **line** through `moved_q[u]` and `moved_q[v]`. It is the line, not the segment, so a
+/// of the **line** through the moved positions of `u` and `v`. It is the line, not the segment, so a
 /// node past the end of the segment is not penalised for that. A path may use only nodes of
 /// the corridor. The cost of a path is the sum, over its steps, of the average of the two end
 /// distances to the line times the length of the step (the trapezoid rule). The best path has
@@ -33,7 +34,7 @@ pub fn find_paths(
     _q: &Graph,
     _g: &Graph,
     _mapping: &[usize],
-    _moved_q: &[Point],
+    _transform: &Transform,
     _tol: f64,
 ) -> Option<EdgeRoutes> {
     Some(EdgeRoutes {
@@ -56,7 +57,7 @@ mod tests {
     /// `ids[i]` is the id in `g` of the node at position `i` of `q`.
     fn route(q: &Graph, g: &Graph, ids: &[NodeId], tol: f64) -> Option<EdgeRoutes> {
         let mapping: Vec<usize> = ids.iter().map(|&id| g.index_of(id).unwrap()).collect();
-        find_paths(q, g, &mapping, q.coords(), tol)
+        find_paths(q, g, &mapping, &Transform::IDENTITY, tol)
     }
 
     /// The ids along a path.

@@ -124,7 +124,9 @@ impl Graph {
         &self.adj[i]
     }
 
-    /// Every edge once, as `(i, j)` with `i < j`, in increasing order.
+    /// Returns a list of edges in the graph.
+    ///
+    /// The graph is undirected, so each edge is only included once.
     pub fn edges(&self) -> Vec<(usize, usize)> {
         let mut edges = Vec::with_capacity(self.edge_count());
         for (i, neighbors) in self.adj.iter().enumerate() {

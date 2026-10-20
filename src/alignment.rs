@@ -4,10 +4,11 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
+use crate::geometry::{Point, Transform};
 use crate::graph::Graph;
 use crate::io::NodeId;
 use crate::path_scoring::find_paths;
-use crate::procrustes::{Transform, fit, node_score};
+use crate::procrustes::{fit, node_score};
 
 /// A mapping with its transform, its score and the part of the crop that realises it.
 ///
@@ -18,13 +19,44 @@ pub struct Alignment {
     pub score: f64,
     pub transform: Transform,
     pub mapping: Vec<(NodeId, NodeId)>,
-    /// The part of G that realises the mapping: the mapped nodes and the nodes on a path, with
-    /// the edges on the paths. Its nodes are in increasing id order.
     pub matched: Graph,
 }
 
-/// The score of an alignment. As in the Python code, only the edge score has a weight.
-fn combine(node_score: f64, edge_score: f64, weight: f64) -> f64 {
+/// Aligns `q` onto the crop with `mapping`, routes each edge of `q` through the crop, and scores
+/// the result. `None` if some edge has no path.
+///
+/// `score = node_score + weight * edge_score`.
+pub fn align(
+    q: &Graph,
+    crop: &Graph,
+    mapping: &[usize],
+    tol: f64,
+    weight: f64,
+) -> Option<Alignment> {
+    // Align Q with G using Procrustes.
+    let targets: Vec<Point> = mapping.iter().map(|&j| crop.coord(j)).collect();
+    let transform = fit(q.coords(), &targets);
+    let moved = transform.apply_all(q.coords());
+    let node_cost = node_score(&moved, &targets);
+
+    // Find the paths in G most aligned with each edge in Q
+    let routes = find_paths(q, crop, mapping, &transform, tol)?;
+
+    // Construct the output.
+    let matched = crop.subgraph(&path_edges(&routes.paths));
+    Some(Alignment {
+        score: score(node_cost, routes.cost, weight),
+        transform,
+        mapping: mapping
+            .iter()
+            .enumerate()
+            .map(|(i, &j)| (q.id(i), crop.id(j)))
+            .collect(),
+        matched,
+    })
+}
+
+fn score(node_score: f64, edge_score: f64, weight: f64) -> f64 {
     node_score + weight * edge_score
 }
 
@@ -39,40 +71,6 @@ fn path_edges(paths: &[Vec<usize>]) -> Vec<(usize, usize)> {
         }
     }
     edges.into_iter().collect()
-}
-
-/// Aligns `q` onto the crop with `mapping`, routes each edge of `q` through the crop, and scores
-/// the result. `None` if some edge has no path.
-///
-/// `score = node_score + weight * edge_score`.
-pub fn align_and_score(
-    q: &Graph,
-    crop: &Graph,
-    mapping: &[usize],
-    tol: f64,
-    weight: f64,
-) -> Option<Alignment> {
-    let targets: Vec<_> = mapping.iter().map(|&j| crop.coord(j)).collect();
-
-    let transform = fit(q.coords(), &targets);
-    let moved = transform.apply_all(q.coords());
-    let node_cost = node_score(&moved, &targets);
-
-    let routes = find_paths(q, crop, mapping, &moved, tol)?;
-
-    // Q is connected, so every mapped node is the end of a path.
-    let matched = crop.subgraph(&path_edges(&routes.paths));
-
-    Some(Alignment {
-        score: combine(node_cost, routes.cost, weight),
-        transform,
-        mapping: mapping
-            .iter()
-            .enumerate()
-            .map(|(i, &j)| (q.id(i), crop.id(j)))
-            .collect(),
-        matched,
-    })
 }
 
 #[cfg(test)]
@@ -96,10 +94,10 @@ mod tests {
     }
 
     #[test]
-    fn combine_weights_only_the_edge_score() {
-        assert_close(combine(2.0, 4.0, 0.5), 4.0);
-        assert_close(combine(2.0, 4.0, 0.0), 2.0);
-        assert_close(combine(2.0, 4.0, 1.0), 6.0);
+    fn score_weights_only_the_edge_score() {
+        assert_close(score(2.0, 4.0, 0.5), 4.0);
+        assert_close(score(2.0, 4.0, 0.0), 2.0);
+        assert_close(score(2.0, 4.0, 1.0), 6.0);
     }
 
     #[test]
@@ -134,7 +132,7 @@ mod tests {
     fn a_copy_in_the_same_frame_scores_zero() {
         let (q, g) = q_and_copy();
 
-        let alignment = align_and_score(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
 
         // nothing has to move, and there is no area
         assert_close(alignment.score, 0.0);
@@ -144,7 +142,7 @@ mod tests {
     fn the_mapping_holds_ids_in_the_order_of_q() {
         let (q, g) = q_and_copy();
 
-        let alignment = align_and_score(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
 
         assert_eq!(alignment.mapping, vec![(1, 11), (2, 12), (3, 13)]);
     }
@@ -155,7 +153,7 @@ mod tests {
         let (q, g) = q_and_copy();
 
         // a different mapping: Q's nodes 1 and 2 go to G's 12 and 11
-        let alignment = align_and_score(&q, &g, &[1, 0, 2], 100.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[1, 0, 2], 100.0, 0.5).unwrap();
 
         assert_eq!(alignment.mapping, vec![(1, 12), (2, 11), (3, 13)]);
         assert_eq!(node_ids(&alignment.matched), vec![11, 12, 13]);
@@ -171,7 +169,7 @@ mod tests {
             &[(13, 12)],
         );
 
-        let alignment = align_and_score(&q, &g, &[0, 1], 1.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[0, 1], 1.0, 0.5).unwrap();
 
         assert_eq!(node_ids(&alignment.matched), vec![12, 13]);
     }
@@ -192,7 +190,7 @@ mod tests {
             &[(11, 12), (12, 13)],
         );
 
-        let alignment = align_and_score(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
 
         assert_close(alignment.score, 0.0);
     }
@@ -202,7 +200,7 @@ mod tests {
     fn the_edges_are_the_g_edges_on_the_paths() {
         let (q, g) = q_and_copy();
 
-        let alignment = align_and_score(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
+        let alignment = align(&q, &g, &[0, 1, 2], 1.0, 0.5).unwrap();
 
         assert_eq!(edge_ids(&alignment.matched), vec![(11, 12), (12, 13)]);
     }
@@ -214,7 +212,7 @@ mod tests {
         // the two mapped nodes are not connected
         let g = graph(&[(11, 0.0, 0.0), (12, 4.0, 0.0)], &[]);
 
-        let alignment = align_and_score(&q, &g, &[0, 1], 1.0, 0.5);
+        let alignment = align(&q, &g, &[0, 1], 1.0, 0.5);
 
         assert_eq!(alignment, None);
     }
