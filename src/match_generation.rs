@@ -1,12 +1,11 @@
-use crate::geometry::Point;
+use crate::geometry::{COLLINEAR_TOL, Point, Side, side_of};
 use crate::graph::Graph;
-use crate::io::NodeId;
 
 /// One row per node of Q, one column per node of G.
 pub type Matches = Vec<Vec<usize>>;
 
-/// A candidate match: `pose[i]` is the position in G of the node matched to Q position `i`.
-pub type Pose = Vec<usize>;
+/// A candidate match: `mapping[i]` is the position in G of the node matched to Q position `i`.
+pub type Mapping = Vec<usize>;
 
 pub fn get_candidate_matches(
     q: &Graph,
@@ -14,11 +13,8 @@ pub fn get_candidate_matches(
     q_anchor: usize,
     g_anchor: usize,
     tol: f64,
-) -> Option<Vec<Pose>> {
+) -> Option<Vec<Mapping>> {
     // Need at least 2 nodes for this to work
-    if q.node_count() < 2 || g.node_count() < 2 {
-        return None;
-    }
     // Need at least enough nodes for 1-to-1 match
     if q.node_count() > g.node_count() {
         return None;
@@ -29,9 +25,62 @@ pub fn get_candidate_matches(
 
     let matches = annulus_matches(q_coords, g_coords, q_anchor, g_anchor, tol)?;
 
-    let alignment_node = pick_alignment_node(q_coords, q_anchor);
+    let q_align = alignment_node(&matches, q_anchor)?;
+    let q_sides = sides(q_coords, q_anchor, q_align);
 
-    todo!()
+    let mut mappings = Vec::new();
+    for &g_align in &matches[q_align] {
+        let both = filter_matches(&matches, |i, j| {
+            within_tol(
+                q_coords[i].dist(q_coords[q_align]),
+                g_coords[j].dist(g_coords[g_align]),
+                tol,
+            )
+        });
+        let g_sides = sides(g_coords, g_anchor, g_align);
+        let (rotation, reflection) = split_by_handedness(&both, &q_sides, &g_sides);
+        mappings.extend(generate_candidates(&rotation));
+        mappings.extend(generate_candidates(&reflection));
+    }
+    (!mappings.is_empty()).then_some(mappings)
+}
+
+fn alignment_node(matches: &Matches, q_anchor: usize) -> Option<usize> {
+    (0..matches.len())
+        .filter(|&i| i != q_anchor)
+        .min_by_key(|&i| matches[i].len())
+}
+
+fn filter_matches(matches: &Matches, keep: impl Fn(usize, usize) -> bool) -> Matches {
+    matches
+        .iter()
+        .enumerate()
+        .map(|(i, row)| row.iter().copied().filter(|&j| keep(i, j)).collect())
+        .collect()
+}
+
+fn sides(points: &[Point], from: usize, to: usize) -> Vec<Side> {
+    points
+        .iter()
+        .map(|&p| side_of(p, points[from], points[to], COLLINEAR_TOL))
+        .collect()
+}
+
+fn same_hand(q: Side, g: Side) -> bool {
+    match (q, g) {
+        (Side::On, _) | (_, Side::On) => true,
+        _ => q == g,
+    }
+}
+
+fn split_by_handedness(
+    matches: &Matches,
+    q_sides: &[Side],
+    g_sides: &[Side],
+) -> (Matches, Matches) {
+    let rotation = filter_matches(matches, |i, j| same_hand(q_sides[i], g_sides[j]));
+    let reflection = filter_matches(matches, |i, j| same_hand(q_sides[i], g_sides[j].flipped()));
+    (rotation, reflection)
 }
 
 /// True when two distances agree within `tol`. A difference of exactly `tol` counts.
@@ -72,60 +121,42 @@ fn annulus_matches(
     Some(matches)
 }
 
-/// Get the index of the node in q that is farthest from the reference node.
-///
-/// This helps make the triangulation areas smaller => less candidates.
-fn pick_alignment_node(q: &[Point], q_ref: usize) -> usize {
-    let ref_p = q[q_ref];
-    let mut max_idx = if q_ref == 0 { 1 } else { 0 };
-    let mut max_dist = q[max_idx].dist(ref_p);
-
-    for (i, p) in q.iter().enumerate() {
-        if i == q_ref {
-            continue;
-        }
-        let dist = p.dist(ref_p);
-        if dist > max_dist {
-            max_dist = dist;
-            max_idx = i;
-        }
-    }
-
-    max_idx
-}
-
-/// Iterates through matches and generates every possible injective pose
+/// Iterates through matches and generates every possible injective mapping
 ///
 /// Backtracking alg: for each node in Q, try each of its matches in G.
-/// If a match is already used, skip it. If we reach the end of Q, we have a valid pose.
-fn generate_candidates(matches: &Matches) -> Vec<Pose> {
+/// If a match is already used, skip it. If we reach the end of Q, we have a valid mapping.
+fn generate_candidates(matches: &Matches) -> Vec<Mapping> {
     let mut found = Vec::new();
-    let mut pose = Vec::with_capacity(matches.len());
-    extend_poses(matches, &mut pose, &mut found);
+    let mut mapping = Vec::with_capacity(matches.len());
+    extend_poses(matches, &mut mapping, &mut found);
     found
 }
 
-/// Add to `found` every pose that starts with `pose`.
-fn extend_poses(matches: &Matches, pose: &mut Pose, found: &mut Vec<Pose>) {
-    let row = pose.len();
+/// Add to `found` every mapping that starts with `mapping`.
+fn extend_poses(matches: &Matches, mapping: &mut Mapping, found: &mut Vec<Mapping>) {
+    let row = mapping.len();
 
     // If all nodes in q have been matched, return
     if row == matches.len() {
-        found.push(pose.clone());
+        found.push(mapping.clone());
         return;
     }
 
     // o.w. pick a node in the row and recurse
     for &j in &matches[row] {
-        pose.push(j);
-        extend_poses(matches, pose, found);
-        pose.pop();
+        if mapping.contains(&j) {
+            continue;
+        }
+        mapping.push(j);
+        extend_poses(matches, mapping, found);
+        mapping.pop();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::io::NodeId;
     use crate::test_fixtures::file;
 
     // Q is near the origin and G is far away, as in the real data.
@@ -165,7 +196,7 @@ mod tests {
     }
 
     // A 3-4-5 triangle. Its three distances are all different, so it has only one
-    // correct pose. The ids are not positions.
+    // correct mapping. The ids are not positions.
     const TRIANGLE: [(NodeId, f64, f64); 3] = [(10, 0.0, 0.0), (20, 3.0, 0.0), (30, 0.0, 4.0)];
 
     fn graph(nodes: &[(NodeId, f64, f64)]) -> Graph {
@@ -227,9 +258,9 @@ mod tests {
         let q = graph(&TRIANGLE);
         let g = graph(&[(101, 100.0, 100.0), (102, 103.0, 100.0)]);
 
-        let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+        let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-        assert!(poses.is_none());
+        assert!(mappings.is_none());
     }
 
     #[test]
@@ -242,24 +273,18 @@ mod tests {
             (103, 200.0, 100.0),
         ]);
 
-        let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+        let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-        assert!(poses.is_none());
-    }
-
-    #[test]
-    fn pick_alignment_node_finds_furthest_node() {
-        // Node index 2 is farthest away
-        assert_eq!(pick_alignment_node(&Q, 1), 2);
+        assert!(mappings.is_none());
     }
     #[test]
     fn single_node_query_has_no_pose() {
         let q = graph(&[(10, 0.0, 0.0)]);
         let g = graph(&[(101, 100.0, 100.0)]);
 
-        let poses = get_candidate_matches(&q, &g, 0, 0, 0.5);
+        let mappings = get_candidate_matches(&q, &g, 0, 0, 0.5);
 
-        assert!(poses.is_none());
+        assert!(mappings.is_none());
     }
 
     #[test]

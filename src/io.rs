@@ -15,8 +15,8 @@ pub struct NodeRecord {
 
 #[derive(Debug, Deserialize)]
 pub struct EdgeRecord {
-    pub source: NodeId, 
-    pub target: NodeId, 
+    pub source: NodeId,
+    pub target: NodeId,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +35,6 @@ pub fn read_graph_file(path: &impl AsRef<Path>) -> Result<GraphFile, Box<dyn Err
     let graph = parse_graph(&text)?;
     Ok(graph)
 }
-
 
 #[cfg(test)]
 mod tests {
