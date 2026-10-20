@@ -33,10 +33,10 @@ the remaining slices.
 | 3 | [Graph type](slice-03-graph.md) | `Graph::from_file`, `distance_from_node`, `radius_from`; `cargo test graph` shows `19 passed`; a 238 MB graph builds in about 1 s. Port `test_core.py` | written |
 | 4 | [Spatial index and crop](slice-04-spatial.md) | `SpatialIndex` (kiddo), `query_radius`, `Graph::subgraph`, `Graph::connected_component`, `make_crop`; `cargo test spatial` shows `13 passed`; a crop around each of 100 110 nodes in about 2 s (Python: about 150 s) | written |
 | 5 | [Node matching](slice-05-align-nodes.md) | `get_candidate_matches`, built one part at a time: annulus matches (a list per query node, not a mask), alignment node, injective assignments, second ring, handedness split; `cargo test align` shows `31 passed`; mappings around every node of `gr00049`, compared with Python | written |
-| 6 | [Rigid transform](slice-06-procrustes.md) | `Transform`, `apply`, `node_score` built in full; the Procrustes `fit` is a **placeholder** (identity) with 4 `#[ignore]` tests for you to make pass; `cargo test procrustes` shows `8 passed; 4 ignored` | written, with a stub |
-| 7 | [Path scoring](slice-07-path-scoring.md) | `Graph::edges`, `Alignment`, `assemble`, `combine`, `align_and_score` built in full; `find_paths` (corridor to the **line**, Dijkstra, area cost) is a **placeholder** with 9 `#[ignore]` tests; `cargo test alignment::` shows `8 passed; 3 ignored` | written, with a stub |
-| 8 | [Pipeline and CLI](slice-08-pipeline-cli.md) | `run_gsearch` with a `TopK`, a `get_candidate_anchors` seam, `clap` arguments, JSON output with `-o`, progress bar, logging; mapping counts equal Python's on six small graphs | written |
-| 9 | [Speed: how to profile](slice-09-profiling.md) | A profiling build profile, timing with `Measure-Command`, `samply`, `dhat` allocation counts, a list of places to test, compiler settings to try. No large-graph runs | written (method only) |
+| 6 | [Rigid transform](slice-06-procrustes.md) | `Transform`, `apply`, `node_score` built in full; the Procrustes `fit` is a **placeholder** (identity) with 4 `#[ignore]` tests for you to make pass; `cargo test procrustes` shows `8 passed; 4 ignored` | code in `src/`, `fit` left to you ([finish-placeholders.md](finish-placeholders.md), Part 1); the slice file is a reference |
+| 7 | [Path scoring](slice-07-path-scoring.md) | `Graph::edges`, `Alignment`, `assemble`, `combine`, `align_and_score` built in full; `find_paths` (corridor to the **line**, Dijkstra, area cost) is a **placeholder** with 9 `#[ignore]` tests; `cargo test alignment::` shows `8 passed; 3 ignored` | code in `src/`, `dist_to_line` and `find_paths` left to you ([finish-placeholders.md](finish-placeholders.md), Parts 2 and 3); the slice file is a reference |
+| 8 | [Pipeline and CLI](slice-08-pipeline-cli.md) | `run_gsearch` with a `TopK`, a `get_candidate_anchors` seam, `clap` arguments, JSON output with `-o`, progress bar, logging; mapping counts equal Python's on six small graphs | code in `src/`; the slice file is a reference |
+| 9 | [Speed: how to profile](slice-09-profiling.md) | A profiling build profile, timing with `Measure-Command`, `samply`, `dhat` allocation counts, a list of places to test, compiler settings to try. No large-graph runs | written (method only); profile after the placeholders are gone |
 | 10 | Parallel search | `rayon` over candidate anchors | outline |
 | 11 | Python bindings (optional) | `maturin` + `PyO3`, so notebooks call the Rust search | outline |
 
@@ -175,17 +175,12 @@ affect the results, so the later slices copy them:
 
 ## Finishing the placeholders
 
-`cargo test -- --ignored` is your work list: at the end of Slice 7 it reports `1 passed; 15 failed`.
-
-1. `procrustes::fit`: 4 tests (Slice 6). Delete `placeholder_fit_gives_the_identity`, set
-   `IS_PLACEHOLDER` to `false`.
-2. `path_scoring::find_paths`: 9 tests (Slice 7), including the line test. Set `IS_PLACEHOLDER` to
-   `false`. You probably add `dist_to_line` to `geometry.rs`.
-3. `alignment::`: 3 tests that need both.
-4. Acceptance: run the CLI on the six small graphs (`gg00041`, `gd00040`, `go00038`, `go00028`,
-   `gg00016`, `gd00032`). The `lowest score` must be below `1e-6`, and the warning must be gone.
-   Each query was cut out of its own graph, so the best alignment is an exact copy.
-5. Profile again (Slice 9), because Dijkstra changes the picture.
+All the code of Slices 5 to 8 is in `src/`. Three parts are left for you, and
+[finish-placeholders.md](finish-placeholders.md) walks you through them: `procrustes::fit`
+(Part 1), `geometry::dist_to_line` (Part 2) and `path_scoring::find_paths` with Dijkstra, the
+corridor and the area cost (Part 3). `cargo test -- --ignored` is the work list: `1 passed; 15 failed`.
+At the end, `cargo test` reports `116 passed; 0 failed; 0 ignored`, and the six small graphs give
+a `lowest score` below `1e-6`.
 
 ## Concept index
 
