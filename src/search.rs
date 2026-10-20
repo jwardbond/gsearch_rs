@@ -1,6 +1,6 @@
 use log::{debug, info};
 
-use crate::alignment::{Alignment, align_and_score};
+use crate::alignment::{Alignment, align};
 use crate::graph::Graph;
 use crate::match_generation::get_candidate_matches;
 use crate::spatial_index::SpatialIndex;
@@ -23,7 +23,7 @@ pub struct SearchOutcome {
 
 /// The nodes of `g` to try as the anchor, with a score, best first.
 ///
-/// For now every node has the score `1.0`. This is a placeholder for a future scoring function.
+/// For now every node has a score of 1.0. This is a placeholder for a future scoring function.
 fn get_candidate_anchors(_q_anchor: usize, _q: &Graph, g: &Graph) -> Vec<(usize, f64)> {
     let mut anchors: Vec<(usize, f64)> = (0..g.node_count()).map(|j| (j, 1.0)).collect();
     anchors.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -86,7 +86,7 @@ pub fn run_gsearch(
 
         // Process each candidate mapping.
         for mapping in &mappings {
-            if let Some(alignment) = align_and_score(q, &crop, mapping, params.tol, params.weight) {
+            if let Some(alignment) = align(q, &crop, mapping, params.tol, params.weight) {
                 best.push(alignment);
             }
         }
