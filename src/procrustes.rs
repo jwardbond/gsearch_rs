@@ -2,8 +2,8 @@
 
 use crate::geometry::{Point, Transform};
 
-/// True while `fit` is a placeholder. Set it to `false` when you write `fit`.
-pub const IS_PLACEHOLDER: bool = true;
+/// True while `fit` is a placeholder.
+pub const IS_PLACEHOLDER: bool = false;
 
 /// The length of the vector of all the offsets between `moved[i]` and `target[i]`.
 ///
@@ -17,9 +17,68 @@ pub fn node_score(moved: &[Point], target: &[Point]) -> f64 {
         .sqrt()
 }
 
-/// PLACEHOLDER. The transform that moves `q[i]` closest to `g[i]`, over all `i`.
-pub fn fit(_q: &[Point], _g: &[Point]) -> Transform {
-    Transform::IDENTITY
+/// The mean of the points.
+fn centroid(points: &[Point]) -> Point {
+    let sum = points.iter().fold(Point::new(0.0, 0.0), |acc, &p| acc + p);
+    sum * (1.0 / points.len() as f64)
+}
+
+/// The transform that moves `q[i]` closest to `g[i]`, over all `i` (Procrustes analysis, as
+/// `_align_graph` in Python). Reflections are allowed.
+///
+/// Centre both sets on their means. Then the best `r` is the orthogonal matrix closest to
+/// `m = sum(q_i^T g_i)` (a 2x2 matrix), which is `V U^T` for the SVD `m^T = U S V^T`.
+/// For a 2x2 matrix this has a closed form, so no SVD is needed:
+///
+/// - If `det(m) >= 0`, `r` is the rotation `[[c, -s], [s, c]]`.
+/// - Otherwise `r` is the reflection `[[c, s], [s, -c]]`.
+///
+/// `c` and `s` come from `m`, and they are the best fit when `(c, s)` is a unit vector in the
+/// direction of `(m00 + m11, m10 - m01)` (rotation) or `(m00 - m11, m01 + m10)` (reflection).
+/// If that vector is zero, the points give no direction, and `r` is the identity.
+pub fn fit(q: &[Point], g: &[Point]) -> Transform {
+    debug_assert_eq!(q.len(), g.len(), "q and g are paired");
+    let mu_q = centroid(q);
+    let mu_g = centroid(g);
+
+    let mut m = [[0.0; 2]; 2];
+    for (&a, &b) in q.iter().zip(g) {
+        let (a, b) = (a - mu_q, b - mu_g);
+        m[0][0] += a.x * b.x;
+        m[0][1] += a.x * b.y;
+        m[1][0] += a.y * b.x;
+        m[1][1] += a.y * b.y;
+    }
+
+    let det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+    let rotation = det >= 0.0;
+    let (x, y) = if rotation {
+        (m[0][0] + m[1][1], m[1][0] - m[0][1])
+    } else {
+        (m[0][0] - m[1][1], m[0][1] + m[1][0])
+    };
+
+    let norm = x.hypot(y);
+    let r = if norm == 0.0 {
+        Transform::IDENTITY.r
+    } else {
+        let (c, s) = (x / norm, y / norm);
+        if rotation {
+            [[c, -s], [s, c]]
+        } else {
+            [[c, s], [s, -c]]
+        }
+    };
+
+    // `mu_q` moves to `mu_g`
+    let turn = Transform {
+        r,
+        t: Point::new(0.0, 0.0),
+    };
+    Transform {
+        r,
+        t: mu_g - turn.apply(mu_q),
+    }
 }
 
 #[cfg(test)]
@@ -72,17 +131,6 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_fit_gives_the_identity() {
-        let g = known().apply_all(&TRIANGLE);
-
-        assert_eq!(fit(&TRIANGLE, &g), Transform::IDENTITY);
-    }
-
-    // The tests below are the target for your `fit`. They are ignored until you write it.
-    // Run them with `cargo test procrustes -- --ignored`.
-
-    #[test]
-    #[ignore = "fit is a placeholder"]
     fn fit_recovers_a_known_transform() {
         let g = known().apply_all(&TRIANGLE);
 
@@ -99,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit is a placeholder"]
     fn fit_moves_q_onto_g() {
         let g = known().apply_all(&TRIANGLE);
 
@@ -112,7 +159,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit is a placeholder"]
     fn fit_recovers_a_reflection() {
         // flip the y axis of Q, then apply the known transform
         let mirrored: Vec<Point> = TRIANGLE.iter().map(|p| Point::new(p.x, -p.y)).collect();
@@ -130,7 +176,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fit is a placeholder"]
+    fn fit_of_one_point_is_a_shift() {
+        let t = fit(&[Point::new(1.0, 2.0)], &[Point::new(11.0, 22.0)]);
+
+        // one point has no direction to turn, so r is the identity
+        assert_eq!(t.r, [[1.0, 0.0], [0.0, 1.0]]);
+        assert_point_close(t.t, Point::new(10.0, 20.0));
+    }
+
+    #[test]
     fn fit_is_the_identity_when_q_equals_g() {
         let t = fit(&TRIANGLE, &TRIANGLE);
 

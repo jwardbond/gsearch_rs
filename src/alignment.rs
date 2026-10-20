@@ -178,7 +178,6 @@ mod tests {
     // Run them with `cargo test alignment -- --ignored`.
 
     #[test]
-    #[ignore = "fit and find_paths are placeholders"]
     fn a_moved_copy_scores_zero() {
         let q = graph(
             &[(1, 0.0, 0.0), (2, 3.0, 0.0), (3, 0.0, 4.0)],
