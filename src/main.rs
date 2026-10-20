@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     bar.finish_and_clear();
 
-    let placeholder_scoring = procrustes::IS_PLACEHOLDER || path_scoring::IS_PLACEHOLDER;
+    let placeholder_scoring = path_scoring::IS_PLACEHOLDER;
     println!(
         "{} in {}: {} anchors, {} mappings, {} alignments kept ({:.3} s)",
         query_file.graph_id,

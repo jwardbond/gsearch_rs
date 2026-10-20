@@ -2,9 +2,6 @@
 
 use crate::geometry::{Point, Transform};
 
-/// True while `fit` is a placeholder.
-pub const IS_PLACEHOLDER: bool = false;
-
 /// The length of the vector of all the offsets between `moved[i]` and `target[i]`.
 ///
 /// This is `np.linalg.norm(moved - target)`: it is not squared, and it is not a mean.
@@ -17,27 +14,16 @@ pub fn node_score(moved: &[Point], target: &[Point]) -> f64 {
         .sqrt()
 }
 
-/// The mean of the points.
+/// Calculates the centroid of a set of points.
 fn centroid(points: &[Point]) -> Point {
     let sum = points.iter().fold(Point::new(0.0, 0.0), |acc, &p| acc + p);
     sum * (1.0 / points.len() as f64)
 }
 
-/// The transform that moves `q[i]` closest to `g[i]`, over all `i` (Procrustes analysis, as
-/// `_align_graph` in Python). Reflections are allowed.
+/// Aligns to sets of points using procrustes analysis.
 ///
-/// Centre both sets on their means. Then the best `r` is the orthogonal matrix closest to
-/// `m = sum(q_i^T g_i)` (a 2x2 matrix), which is `V U^T` for the SVD `m^T = U S V^T`.
-/// For a 2x2 matrix this has a closed form, so no SVD is needed:
-///
-/// - If `det(m) >= 0`, `r` is the rotation `[[c, -s], [s, c]]`.
-/// - Otherwise `r` is the reflection `[[c, s], [s, -c]]`.
-///
-/// `c` and `s` come from `m`, and they are the best fit when `(c, s)` is a unit vector in the
-/// direction of `(m00 + m11, m10 - m01)` (rotation) or `(m00 - m11, m01 + m10)` (reflection).
-/// If that vector is zero, the points give no direction, and `r` is the identity.
+/// Uses the SVD based algorithm from Arun et al. 1987 (https://ieeexplore.ieee.org/abstract/document/4767965)
 pub fn fit(q: &[Point], g: &[Point]) -> Transform {
-    debug_assert_eq!(q.len(), g.len(), "q and g are paired");
     let mu_q = centroid(q);
     let mu_g = centroid(g);
 
@@ -51,7 +37,9 @@ pub fn fit(q: &[Point], g: &[Point]) -> Transform {
     }
 
     let det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+
     let rotation = det >= 0.0;
+
     let (x, y) = if rotation {
         (m[0][0] + m[1][1], m[1][0] - m[0][1])
     } else {
