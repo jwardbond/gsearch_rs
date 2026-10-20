@@ -1,10 +1,12 @@
 use std::ops::{Add, Mul, Sub};
 
+use serde::Serialize;
+
 /// Below this value, the cross product of a point with a line will indicate that
 /// the point is "on the line"
 pub const COLLINEAR_TOL: f64 = 1e-9;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Point {
     pub x: f64,
     pub y: f64,

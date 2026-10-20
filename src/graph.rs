@@ -88,6 +88,19 @@ impl Graph {
         &self.adj[i]
     }
 
+    /// Every edge once, as `(i, j)` with `i < j`, in increasing order.
+    pub fn edges(&self) -> Vec<(usize, usize)> {
+        let mut edges = Vec::with_capacity(self.edge_count());
+        for (i, neighbors) in self.adj.iter().enumerate() {
+            for &j in neighbors {
+                if i < j {
+                    edges.push((i, j));
+                }
+            }
+        }
+        edges
+    }
+
     /// Gets the distance from a given node to all other nodes in the graph
     pub fn distance_from_node(&self, i: usize) -> Vec<(usize, f64)> {
         let anchor = self.coord(i);
@@ -481,5 +494,17 @@ mod tests {
         assert_eq!(component.node_count(), 1);
         assert_eq!(component.id(0), 100);
         assert_eq!(component.edge_count(), 0);
+    }
+
+    #[test]
+    fn edges_lists_each_edge_once_in_order() {
+        let graph = fixture();
+
+        let edges = graph.edges();
+
+        // positions follow the file order: 50 is 0, 2 is 1, 17 is 2, 8 is 3, 33 is 4, 7 is 5
+        assert_eq!(edges, vec![(0, 1), (0, 2), (1, 4), (2, 3), (4, 5)]);
+        // the list is as long as the edge count
+        assert_eq!(edges.len(), graph.edge_count());
     }
 }
