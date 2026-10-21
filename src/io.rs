@@ -32,8 +32,9 @@ fn parse_graph(json: &str) -> Result<GraphFile, serde_json::Error> {
 }
 
 pub fn read_graph_file(path: &impl AsRef<Path>) -> Result<GraphFile, Box<dyn Error>> {
-    let text = read_to_string(path)?;
-    let graph = parse_graph(&text)?;
+    let path = path.as_ref();
+    let text = read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let graph = parse_graph(&text).map_err(|e| format!("cannot parse {}: {e}", path.display()))?;
     Ok(graph)
 }
 

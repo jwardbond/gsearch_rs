@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Parser;
-use indicatif::ProgressBar;
+use indicatif::{MultiProgress, ProgressBar};
+use indicatif_log_bridge::LogWrapper;
 use serde::Serialize;
 
 use gsearch::alignment::Alignment;
@@ -52,11 +53,24 @@ struct Report<'a> {
     results: &'a [Alignment],
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let level = if args.verbose { "debug" } else { "info" };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).build();
+    let max_level = logger.filter();
+    // Log lines are printed above the progress bar, so they do not break it.
+    let multi = MultiProgress::new();
+    LogWrapper::new(multi.clone(), logger).try_init()?;
+    log::set_max_level(max_level);
 
     let query_file = read_graph_file(&args.query)?;
     let query = Graph::from_file(&query_file)?;
@@ -71,7 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         k: args.k,
         weight: args.weight,
     };
-    let bar = ProgressBar::new(0);
+    let bar = multi.add(ProgressBar::new(0));
     let start = Instant::now();
     let outcome = run_gsearch(&query, &index, &params, |done, total| {
         bar.set_length(total as u64);
