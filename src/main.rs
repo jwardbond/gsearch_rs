@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Parser;
-use indicatif::{MultiProgress, ProgressBar};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use indicatif_log_bridge::LogWrapper;
 use serde::Serialize;
 
@@ -86,6 +86,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         weight: args.weight,
     };
     let bar = multi.add(ProgressBar::new(0));
+    bar.set_style(
+        ProgressStyle::with_template(
+            "{wide_bar} {pos}/{len} anchors  elapsed {elapsed_precise}  eta {eta_precise}",
+        )
+        .expect("the template is valid"),
+    );
     let start = Instant::now();
     let outcome = run_gsearch(&query, &index, &params, |done, total| {
         bar.set_length(total as u64);
