@@ -58,6 +58,48 @@ impl Mul<f64> for Point {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bbox {
+    pub minp: Point,
+    pub maxp: Point,
+    pub area: f64,
+}
+
+impl Bbox {
+    pub fn new(minp: Point, maxp: Point) -> Bbox {
+        let area = (maxp.x - minp.x) * (maxp.y - minp.y);
+        Bbox { minp, maxp, area }
+    }
+
+    pub fn from_points(points: &[Point]) -> Bbox {
+        let mut minp = Point::new(f64::INFINITY, f64::INFINITY);
+        let mut maxp = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+
+        for &p in points {
+            minp.x = minp.x.min(p.x);
+            minp.y = minp.y.min(p.y);
+            maxp.x = maxp.x.max(p.x);
+            maxp.y = maxp.y.max(p.y);
+        }
+
+        Bbox::new(minp, maxp)
+    }
+
+    /// 0 if they do not overlap, intersection/union if they do.
+    pub fn overlap(&self, other: &Bbox) -> f64 {
+        let x_overlap = (self.maxp.x.min(other.maxp.x) - self.minp.x.max(other.minp.x)).max(0.0);
+        let y_overlap = (self.maxp.y.min(other.maxp.y) - self.minp.y.max(other.minp.y)).max(0.0);
+
+        let intersection = x_overlap * y_overlap;
+        let union = self.area + other.area - intersection;
+        if union == 0.0 {
+            0.0
+        } else {
+            intersection / union
+        }
+    }
+}
+
 /// A rigid transformation matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Transform {
@@ -396,5 +438,129 @@ mod tests {
         assert_eq!(side_of(Point::new(0.5, 0.05), A, X1, 0.1), Side::On);
         // clearly off the line keeps its side
         assert_eq!(side_of(Point::new(0.5, 0.5), A, X1, 0.1), Side::Left);
+    }
+
+    fn bbox(x0: f64, y0: f64, x1: f64, y1: f64) -> Bbox {
+        Bbox::new(Point::new(x0, y0), Point::new(x1, y1))
+    }
+
+    #[test]
+    fn identical_boxes_overlap_fully() {
+        let b = bbox(0.0, 0.0, 2.0, 3.0);
+
+        assert_close(b.overlap(&b), 1.0);
+    }
+
+    #[test]
+    fn disjoint_boxes_do_not_overlap() {
+        // apart in x only, in y only, and in both
+        let a = bbox(0.0, 0.0, 1.0, 1.0);
+
+        assert_close(a.overlap(&bbox(5.0, 0.0, 6.0, 1.0)), 0.0);
+        assert_close(a.overlap(&bbox(0.0, 5.0, 1.0, 6.0)), 0.0);
+        assert_close(a.overlap(&bbox(5.0, 5.0, 6.0, 6.0)), 0.0);
+    }
+
+    #[test]
+    fn partial_overlap_is_intersection_over_union() {
+        let a = bbox(0.0, 0.0, 2.0, 2.0);
+        let b = bbox(1.0, 1.0, 3.0, 3.0);
+
+        // intersection 1, union 4 + 4 - 1 = 7
+        assert_close(a.overlap(&b), 1.0 / 7.0);
+    }
+
+    #[test]
+    fn contained_box_overlaps_by_ratio_of_areas() {
+        let big = bbox(0.0, 0.0, 4.0, 4.0);
+        let small = bbox(1.0, 1.0, 3.0, 3.0);
+
+        // intersection is the small box (4), union is the big box (16)
+        assert_close(big.overlap(&small), 0.25);
+        assert_close(small.overlap(&big), 0.25);
+    }
+
+    #[test]
+    fn touching_edges_do_not_overlap() {
+        let a = bbox(0.0, 0.0, 1.0, 1.0);
+
+        // share an edge, then share only a corner
+        assert_close(a.overlap(&bbox(1.0, 0.0, 2.0, 1.0)), 0.0);
+        assert_close(a.overlap(&bbox(1.0, 1.0, 2.0, 2.0)), 0.0);
+    }
+
+    #[test]
+    fn overlap_is_symmetric() {
+        let a = bbox(0.0, 0.0, 2.0, 2.0);
+        let b = bbox(1.0, -1.0, 4.0, 1.5);
+
+        assert_close(a.overlap(&b), b.overlap(&a));
+    }
+
+    #[test]
+    fn zero_area_boxes_give_zero() {
+        let point = bbox(1.0, 1.0, 1.0, 1.0);
+        let big = bbox(0.0, 0.0, 2.0, 2.0);
+
+        // union is 0, so the guard returns 0 instead of NaN
+        assert_close(point.overlap(&point), 0.0);
+        // a point inside a box has no intersection area
+        assert_close(point.overlap(&big), 0.0);
+    }
+
+    #[test]
+    fn from_points_takes_min_and_max_of_each_axis() {
+        // min x and max y come from different points
+        let points = [
+            Point::new(1.0, 5.0),
+            Point::new(-2.0, 3.0),
+            Point::new(4.0, -1.0),
+        ];
+
+        let b = Bbox::from_points(&points);
+
+        assert_point_close(b.minp, Point::new(-2.0, -1.0));
+        assert_point_close(b.maxp, Point::new(4.0, 5.0));
+        assert_close(b.area, 6.0 * 6.0);
+    }
+
+    #[test]
+    fn from_points_of_one_point_has_zero_area() {
+        let p = Point::new(2.0, -3.0);
+
+        let b = Bbox::from_points(&[p]);
+
+        assert_point_close(b.minp, p);
+        assert_point_close(b.maxp, p);
+        assert_close(b.area, 0.0);
+    }
+
+    #[test]
+    fn from_points_ignores_the_order_of_points() {
+        let forward = [
+            Point::new(0.0, 0.0),
+            Point::new(3.0, 1.0),
+            Point::new(1.0, 2.0),
+        ];
+        let mut backward = forward;
+        backward.reverse();
+
+        let a = Bbox::from_points(&forward);
+        let b = Bbox::from_points(&backward);
+
+        assert_point_close(a.minp, b.minp);
+        assert_point_close(a.maxp, b.maxp);
+    }
+
+    #[test]
+    fn from_points_of_collinear_points_has_zero_area() {
+        // all on the line y = 1, so the box is flat
+        let points = [Point::new(0.0, 1.0), Point::new(5.0, 1.0)];
+
+        let b = Bbox::from_points(&points);
+
+        assert_point_close(b.minp, Point::new(0.0, 1.0));
+        assert_point_close(b.maxp, Point::new(5.0, 1.0));
+        assert_close(b.area, 0.0);
     }
 }

@@ -1,4 +1,4 @@
-use crate::geometry::Point;
+use crate::geometry::{Bbox, Point};
 use crate::io::{EdgeRecord, GraphFile, NodeId, NodeRecord};
 
 use serde::ser::{Serialize, Serializer};
@@ -15,6 +15,7 @@ pub struct Graph {
     coords: Vec<Point>,
     adj: Vec<Vec<usize>>,
     index_of: HashMap<NodeId, usize>,
+    bbox: Bbox,
 }
 
 /// Undirected graph with 2D coordinates for each node.
@@ -57,12 +58,15 @@ impl Graph {
             n.dedup();
         }
 
+        let bbox = Bbox::from_points(&coords);
+
         Ok(Graph {
             graph_id: file.graph_id.clone(),
             ids,
             coords,
             adj,
             index_of,
+            bbox,
         })
     }
 
@@ -193,12 +197,15 @@ impl Graph {
             n.dedup();
         }
 
+        let bbox = Bbox::from_points(&coords);
+
         Graph {
             graph_id: self.graph_id.clone(),
             ids,
             coords,
             adj,
             index_of,
+            bbox,
         }
     }
 
