@@ -10,10 +10,6 @@ use crate::io::NodeId;
 use crate::path_scoring::find_paths;
 use crate::procrustes::{fit, node_score};
 
-/// A mapping with its transform, its score and the part of the crop that realises it.
-///
-/// It holds ids, not positions: a position only has a meaning inside one crop, and the crop
-/// is dropped before the search ends.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Alignment {
     pub score: f64,
