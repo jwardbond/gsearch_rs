@@ -100,6 +100,10 @@ impl Graph {
         &self.graph_id
     }
 
+    pub fn bbox(&self) -> &Bbox {
+        &self.bbox
+    }
+
     pub fn node_count(&self) -> usize {
         self.ids.len()
     }

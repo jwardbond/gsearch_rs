@@ -47,9 +47,40 @@ impl TopK {
     /// Alignments with equal scores keep the order in which they came, as in Python's `sorted`.
     fn push(&mut self, alignment: Alignment) {
         let at = self.items.partition_point(|a| a.score <= alignment.score);
-        if at < self.k {
-            self.items.insert(at, alignment);
-            self.items.truncate(self.k);
+
+        // Return early if
+        // - new is worse than all existing
+        // - we already have k items
+        if at >= self.k {
+            return;
+        }
+
+        let bbox = alignment.matched.bbox();
+        let overlaps: Vec<(usize, f64)> = self
+            .items
+            .iter()
+            .enumerate()
+            .map(|(idx, i)| (idx, i.matched.bbox().overlap(bbox)))
+            .filter(|&(_, overlap)| overlap >= 0.5)
+            .collect();
+
+        // Return early if an overlapping item with a better score already exists
+        if overlaps.iter().any(|&(idx, _)| idx < at) {
+            return;
+        }
+
+        // Bump the most overlapping item, else the last item
+        let overlap_idx = overlaps
+            .into_iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(idx, _)| idx);
+
+        self.items.insert(at, alignment);
+
+        if let Some(idx) = overlap_idx {
+            self.items.remove(idx + 1);
+        } else if self.items.len() > self.k {
+            self.items.pop();
         }
     }
 }
@@ -129,6 +160,20 @@ mod tests {
         top.items.iter().map(|a| a.score).collect()
     }
 
+    /// An alignment whose matched graph has the bbox (x, 0) to (x + w, h).
+    fn alignment_at(score: f64, tag: NodeId, x: f64, w: f64, h: f64) -> Alignment {
+        Alignment {
+            score,
+            transform: Transform::IDENTITY,
+            mapping: vec![(tag, tag)],
+            matched: graph(&[(tag, x, 0.0), (tag + 1000, x + w, h)], &[]),
+        }
+    }
+
+    fn tags(top: &TopK) -> Vec<NodeId> {
+        top.items.iter().map(|a| a.matched.id(0)).collect()
+    }
+
     #[test]
     fn every_node_is_a_candidate_anchor() {
         let q = graph(&[(1, 0.0, 0.0)], &[]);
@@ -181,6 +226,99 @@ mod tests {
         top.push(alignment(1.0, 0));
 
         assert_eq!(scores(&top), vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn top_k_ignores_an_alignment_worse_than_a_full_list() {
+        let mut top = TopK::new(2);
+
+        top.push(alignment_at(1.0, 1, 0.0, 10.0, 10.0));
+        top.push(alignment_at(2.0, 2, 100.0, 10.0, 10.0));
+        top.push(alignment_at(3.0, 3, 200.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![1, 2]);
+    }
+
+    #[test]
+    fn top_k_replaces_an_overlapping_worse_alignment() {
+        let mut top = TopK::new(3);
+        top.push(alignment_at(1.0, 1, 0.0, 10.0, 10.0));
+        top.push(alignment_at(3.0, 2, 100.0, 10.0, 10.0));
+
+        top.push(alignment_at(2.0, 3, 100.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![1, 3]);
+    }
+
+    #[test]
+    fn top_k_drops_an_alignment_that_overlaps_a_better_one() {
+        let mut top = TopK::new(3);
+        top.push(alignment_at(1.0, 1, 0.0, 10.0, 10.0));
+        top.push(alignment_at(3.0, 2, 100.0, 10.0, 10.0));
+
+        top.push(alignment_at(2.0, 3, 0.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![1, 2]);
+    }
+
+    #[test]
+    fn top_k_drops_an_alignment_that_overlaps_a_better_and_a_worse_one() {
+        let mut top = TopK::new(3);
+        // A and B overlap each other by 0.43, which is below 0.5
+        top.push(alignment_at(1.0, 1, 0.0, 10.0, 10.0));
+        top.push(alignment_at(3.0, 2, 4.0, 10.0, 10.0));
+
+        // overlaps both by 0.67
+        top.push(alignment_at(2.0, 3, 2.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![1, 2]);
+    }
+
+    #[test]
+    fn top_k_replaces_the_most_overlapping_worse_alignment() {
+        let mut top = TopK::new(4);
+        // 1 and 2 overlap each other by 0.43, which is below 0.5
+        top.push(alignment_at(3.0, 1, -3.0, 10.0, 10.0));
+        top.push(alignment_at(4.0, 2, 1.0, 10.0, 10.0));
+
+        // overlaps 1 by 0.54 and 2 by 0.82
+        top.push(alignment_at(2.0, 3, 0.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![3, 1]);
+    }
+
+    #[test]
+    fn top_k_replaces_an_overlapping_alignment_at_the_end_of_a_full_list() {
+        let mut top = TopK::new(3);
+        top.push(alignment_at(1.0, 1, 0.0, 10.0, 10.0));
+        top.push(alignment_at(2.0, 2, 100.0, 10.0, 10.0));
+        top.push(alignment_at(4.0, 3, 200.0, 10.0, 10.0));
+
+        top.push(alignment_at(3.0, 4, 200.0, 10.0, 10.0));
+
+        assert_eq!(tags(&top), vec![1, 2, 4]);
+    }
+
+    #[test]
+    fn top_k_treats_an_overlap_of_exactly_one_half_as_overlapping() {
+        let mut top = TopK::new(2);
+        top.push(alignment_at(3.0, 1, 0.0, 10.0, 10.0));
+
+        // lies inside the first box, with half of its area
+        top.push(alignment_at(2.0, 2, 0.0, 10.0, 5.0));
+
+        assert_eq!(tags(&top), vec![2]);
+    }
+
+    #[test]
+    fn top_k_keeps_an_alignment_that_overlaps_below_one_half() {
+        let mut top = TopK::new(2);
+        top.push(alignment_at(3.0, 1, 0.0, 10.0, 10.0));
+
+        // lies inside the first box, with 0.4 of its area
+        top.push(alignment_at(2.0, 2, 0.0, 10.0, 4.0));
+
+        assert_eq!(tags(&top), vec![2, 1]);
     }
 
     /// A 3-4-5 triangle as Q, and a G with one copy of it, far away, and one stray node.
